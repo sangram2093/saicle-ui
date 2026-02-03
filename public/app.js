@@ -28,6 +28,27 @@ let polling = false;
 let processingStartAt = 0;
 let lastMessage = "";
 const HANG_THRESHOLD_MS = 45000;
+const SCROLL_BOTTOM_THRESHOLD = 32;
+let autoScrollEnabled = true;
+let lastRenderKey = "";
+
+function isNearBottom(container) {
+  if (!container) return true;
+  const distance =
+    container.scrollHeight - (container.scrollTop + container.clientHeight);
+  return distance <= SCROLL_BOTTOM_THRESHOLD;
+}
+
+function updateAutoScrollState() {
+  autoScrollEnabled = isNearBottom(chatEl);
+}
+
+function hasActiveSelection() {
+  const selection = window.getSelection?.();
+  if (!selection || selection.isCollapsed) return false;
+  const anchor = selection.anchorNode;
+  return anchor && chatEl && chatEl.contains(anchor);
+}
 
 function setStatus(text, isBusy) {
   statusEl.textContent = text;
@@ -268,6 +289,9 @@ function renderToolCalls(toolCallStates, container) {
 }
 
 function renderMessages(history, showThinking, pendingPermission) {
+  const shouldStickToBottom = autoScrollEnabled;
+  const previousScrollTop = chatEl.scrollTop;
+  const previousScrollHeight = chatEl.scrollHeight;
   chatEl.innerHTML = "";
 
   if (!history || history.length === 0) {
@@ -312,7 +336,12 @@ function renderMessages(history, showThinking, pendingPermission) {
     appendThinkingMessage();
   }
 
-  chatEl.scrollTop = chatEl.scrollHeight;
+  if (shouldStickToBottom) {
+    chatEl.scrollTop = chatEl.scrollHeight;
+  } else {
+    const delta = chatEl.scrollHeight - previousScrollHeight;
+    chatEl.scrollTop = previousScrollTop + (delta > 0 ? delta : 0);
+  }
 }
 
 function appendThinkingMessage() {
@@ -413,7 +442,23 @@ async function updateState() {
     }
 
     if (!viewingSession) {
-      renderMessages(state.session?.history || [], state.isProcessing, pending);
+      const history = state.session?.history || [];
+      const last = history[history.length - 1];
+      const lastId = last?.message?.id || "";
+      const lastRole = last?.message?.role || "";
+      const lastLen =
+        typeof last?.message?.content === "string"
+          ? last.message.content.length
+          : Array.isArray(last?.message?.content)
+            ? last.message.content.length
+            : 0;
+      const renderKey = `${history.length}|${lastId}|${lastRole}|${lastLen}|${state.isProcessing}|${pending ? pending.requestId : ""}`;
+
+      const selectionActive = hasActiveSelection();
+      if (!selectionActive && renderKey !== lastRenderKey) {
+        renderMessages(history, state.isProcessing, pending);
+        lastRenderKey = renderKey;
+      }
       if (pending) {
         setStatus("Waiting for approval", true);
       } else {
@@ -630,4 +675,7 @@ chatSubEl.addEventListener("click", () => {
   await loadSessions();
   await updateState();
   startPolling();
+  if (chatEl) {
+    chatEl.addEventListener("scroll", updateAutoScrollState);
+  }
 })();

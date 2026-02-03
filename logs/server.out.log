@@ -1,0 +1,19 @@
+[cli] (node:51292) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[cli] (node:51292) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+[cli] 
+Configuration:
+[cli]   Organization: personal
+  Assistant: Local Agent
+  Model: openai/gpt-5
+  Config file: C:\Users\sangr\.dbsaicle\config.yaml
+[cli] Server started on http://localhost:8000
+[cli] Endpoints:
+  GET  /state      - Get current agent state
+  POST /message    - Send a message (body: { message: string })
+  POST /permission - Approve/reject tool (body: { requestId, approved })
+  GET  /diff       - Get git diff against main branch
+  POST /exit       - Gracefully shut down the server
+
+Server will shut down after 3600 seconds of inactivity
+saicle-ui running at http://127.0.0.1:4173

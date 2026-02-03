@@ -209,6 +209,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  user-select: text;
 }
 
 .message {
@@ -219,6 +220,7 @@ body {
   box-shadow: var(--shadow);
   max-width: 860px;
   line-height: 1.5;
+  user-select: text;
 }
 
 .message.user {
@@ -252,6 +254,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-bottom: 6px;
+  user-select: none;
 }
 
 .message-content {
