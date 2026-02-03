@@ -94,6 +94,34 @@ function normalizeContent(content) {
   return "";
 }
 
+function stringifyValue(value) {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_err) {
+    return String(value);
+  }
+}
+
+function normalizeToolOutput(output) {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) {
+    return output
+      .map((item) => {
+        if (!item) return "";
+        if (typeof item === "string") return item;
+        if (typeof item.content === "string") return item.content;
+        if (typeof item.text === "string") return item.text;
+        return stringifyValue(item);
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (output && typeof output.content === "string") return output.content;
+  return stringifyValue(output);
+}
+
 function escapeHtml(text) {
   return text
     .replace(/&/g, "&amp;")
@@ -133,20 +161,79 @@ function renderBlock(block) {
   return html;
 }
 
+function looksLikeSvg(code) {
+  return /<\s*svg[\s>]/i.test(code);
+}
+
+function looksLikeHtml(code) {
+  return /<\s*(html|head|body|script|style|div|span|section|article|canvas|table)\b/i.test(
+    code,
+  );
+}
+
+function looksLikeD3(code) {
+  return /\bd3\s*\./i.test(code) || /\bd3\s*\(/i.test(code);
+}
+
+function detectPreviewLanguage(code, language) {
+  const lang = (language || "")
+    .toLowerCase()
+    .split(/[\s.]/)
+    .filter(Boolean)[0] || "";
+  if (["html", "svg", "d3", "d3js"].includes(lang)) {
+    return lang === "d3js" ? "d3" : lang;
+  }
+  if (["js", "javascript", "ts", "typescript"].includes(lang)) {
+    if (looksLikeD3(code)) return "d3";
+  }
+  if (looksLikeSvg(code)) return "svg";
+  if (looksLikeHtml(code)) return "html";
+  if (looksLikeD3(code)) return "d3";
+  return null;
+}
+
+function findAutoPreview(text) {
+  if (!text) return null;
+  if (/```/.test(text)) return null;
+  const htmlMatch = text.match(/<!doctype html[\s\S]*<\/html>/i);
+  if (htmlMatch) {
+    return { code: htmlMatch[0], language: "html" };
+  }
+  const htmlBlock = text.match(/<html[\s\S]*<\/html>/i);
+  if (htmlBlock) {
+    return { code: htmlBlock[0], language: "html" };
+  }
+  const svgBlock = text.match(/<svg[\s\S]*<\/svg>/i);
+  if (svgBlock) {
+    return { code: svgBlock[0], language: "svg" };
+  }
+  if (looksLikeD3(text)) {
+    return { code: text, language: "d3" };
+  }
+  if (looksLikeHtml(text)) {
+    return { code: text, language: "html" };
+  }
+  return null;
+}
+
 function buildPreviewHtml(code, language) {
   const baseStyle =
-    "body{margin:0;background:#111;color:#e6e6e6;font-family:Segoe UI,system-ui,sans-serif;}*{box-sizing:border-box;}";
-  if (language === "svg") {
-    return `<!doctype html><html><head><style>${baseStyle}</style></head><body>${code}</body></html>`;
+    "body{margin:0;padding:12px;background:#111;color:#e6e6e6;font-family:Segoe UI,system-ui,sans-serif;}*{box-sizing:border-box;}";
+  const trimmed = (code || "").trim();
+  const hasHtmlDoc = /<!doctype html>/i.test(trimmed) || /<html[\s>]/i.test(trimmed);
+  if (hasHtmlDoc) {
+    return trimmed;
   }
+
   if (language === "d3" || language === "d3js") {
-    const isHtml = code.includes("<");
+    const isHtml = looksLikeHtml(trimmed) || looksLikeSvg(trimmed);
     if (isHtml) {
-      return `<!doctype html><html><head><style>${baseStyle}</style></head><body>${code}</body></html>`;
+      return `<!doctype html><html><head><meta charset="utf-8"/><style>${baseStyle}</style></head><body>${trimmed}</body></html>`;
     }
-    return `<!doctype html><html><head><style>${baseStyle}</style></head><body><div id="chart"></div><script src="https://d3js.org/d3.v7.min.js"></script><script>${code}</script></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"/><style>${baseStyle}</style></head><body><div id="chart"></div><script src="https://d3js.org/d3.v7.min.js"></script><script>${trimmed}</script></body></html>`;
   }
-  return `<!doctype html><html><head><style>${baseStyle}</style></head><body>${code}</body></html>`;
+
+  return `<!doctype html><html><head><meta charset="utf-8"/><style>${baseStyle}</style></head><body>${trimmed}</body></html>`;
 }
 
 function buildPreviewFrame(code, language) {
@@ -157,23 +244,35 @@ function buildPreviewFrame(code, language) {
 
 function renderRichText(rawText) {
   const text = rawText || "";
+  const autoPreview = findAutoPreview(text);
   if (window.marked) {
     const renderer = new window.marked.Renderer();
     renderer.code = (code, language) => {
-      const lang = (language || "").toLowerCase();
+      const lang =
+        (language || "")
+          .toLowerCase()
+          .split(/[\s.]/)
+          .filter(Boolean)[0] || "";
       const escaped = escapeHtml(code);
       let preview = "";
-      if (["html", "svg", "d3", "d3js"].includes(lang)) {
-        preview = buildPreviewFrame(code, lang);
+      const previewLang = detectPreviewLanguage(code, lang);
+      if (previewLang) {
+        preview = buildPreviewFrame(code, previewLang);
       }
       return `${preview}<pre><code class="language-${lang}">${escaped}</code></pre>`;
     };
 
-    const html = window.marked.parse(text, {
+    const markdownHtml = window.marked.parse(text, {
       renderer,
       gfm: true,
       breaks: true,
     });
+
+    const previewHtml = autoPreview
+      ? buildPreviewFrame(autoPreview.code, autoPreview.language)
+      : "";
+
+    const html = `${previewHtml}${markdownHtml}`;
 
     if (window.DOMPurify) {
       return window.DOMPurify.sanitize(html, {
@@ -199,6 +298,7 @@ function renderRichText(rawText) {
           "sandbox",
           "referrerpolicy",
         ],
+        ALLOW_DATA_ATTR: true,
       });
     }
     return html;
@@ -206,15 +306,26 @@ function renderRichText(rawText) {
 
   const escaped = escapeHtml(text);
   const parts = escaped.split("```");
-  let html = "";
+  let html = autoPreview
+    ? buildPreviewFrame(autoPreview.code, autoPreview.language)
+    : "";
   parts.forEach((part, index) => {
     if (index % 2 === 1) {
       const lines = part.split("\n");
       let language = "";
-      if (lines.length > 1 && /^[a-zA-Z0-9+-]+$/.test(lines[0].trim())) {
-        language = lines.shift().trim();
+      if (lines.length > 1) {
+        const firstLine = lines[0].trim();
+        const token = firstLine.split(/\s+/)[0];
+        if (token && /^[a-zA-Z0-9+-]+$/.test(token)) {
+          language = token;
+          lines.shift();
+        }
       }
       const code = lines.join("\n");
+      const previewLang = detectPreviewLanguage(code, language);
+      if (previewLang) {
+        html += buildPreviewFrame(code, previewLang);
+      }
       html += `<pre><code${language ? ` data-lang="${language}"` : ""}>${code}</code></pre>`;
     } else {
       const blocks = part.split(/\n{2,}/);
@@ -276,9 +387,12 @@ function renderToolCalls(toolCallStates, container) {
     card.appendChild(title);
     card.appendChild(args);
 
-    if (Array.isArray(tc.output) && tc.output.length > 0) {
+    const outputText = normalizeToolOutput(tc.output);
+    if (outputText) {
       const output = document.createElement("div");
-      output.textContent = `Output: ${tc.output.map((o) => o.content || "").join("\n")}`;
+      output.className = "tool-call-output";
+      output.innerHTML = renderRichText(outputText);
+      hydratePreviews(output);
       card.appendChild(output);
     }
 

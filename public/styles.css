@@ -306,6 +306,7 @@ body {
   border-radius: 10px;
   background: #111;
   margin: 10px 0;
+  display: block;
 }
 
 .html-preview[data-loading="true"] {
@@ -351,6 +352,25 @@ body {
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 12px;
+}
+
+.tool-call-output {
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.tool-call-output pre {
+  background: #1b1b1b;
+  border: 1px solid var(--panel-border);
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0 0;
+}
+
+.tool-call-output code {
+  font-family: Consolas, "JetBrains Mono", "Courier New", monospace;
+  font-size: 11px;
 }
 
 .tool-call-title {
