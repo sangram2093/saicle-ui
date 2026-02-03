@@ -14,6 +14,50 @@ app.use(express.json({ limit: "2mb" }));
 const cliBaseUrl = `http://127.0.0.1:${config.cliPort}`;
 let cliProcess = null;
 let cliReady = false;
+let expectCliExit = false;
+let restartTimer = null;
+const publicDir = path.join(__dirname, "..", "public");
+
+function ensureVendorAssets() {
+  try {
+    const vendorDir = path.join(publicDir, "vendor");
+    if (!fs.existsSync(vendorDir)) {
+      fs.mkdirSync(vendorDir, { recursive: true });
+    }
+
+    const assets = [
+      {
+        src: path.join(
+          __dirname,
+          "..",
+          "node_modules",
+          "marked",
+          "marked.min.js",
+        ),
+        dest: path.join(vendorDir, "marked.min.js"),
+      },
+      {
+        src: path.join(
+          __dirname,
+          "..",
+          "node_modules",
+          "dompurify",
+          "dist",
+          "purify.min.js",
+        ),
+        dest: path.join(vendorDir, "purify.min.js"),
+      },
+    ];
+
+    assets.forEach((asset) => {
+      if (fs.existsSync(asset.src) && !fs.existsSync(asset.dest)) {
+        fs.copyFileSync(asset.src, asset.dest);
+      }
+    });
+  } catch (_err) {
+    // Best-effort; continue even if vendor assets are missing
+  }
+}
 
 function buildCliCommand(cliPath) {
   const ext = path.extname(cliPath).toLowerCase();
@@ -49,6 +93,7 @@ async function waitForCliReady(timeoutMs) {
 
 function startCli() {
   if (cliProcess) return;
+  expectCliExit = false;
 
   const { command, args } = buildCliCommand(config.cliPath);
   const cliArgs = [
@@ -80,11 +125,18 @@ function startCli() {
     if (config.dev) {
       console.log(`CLI exited (code=${code}, signal=${signal})`);
     }
+    if (!expectCliExit) {
+      if (restartTimer) clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        startCli();
+      }, 1500);
+    }
   });
 }
 
 async function stopCli() {
   if (!cliProcess) return;
+  expectCliExit = true;
   try {
     await fetch(`${cliBaseUrl}/exit`, { method: "POST" });
   } catch (_err) {
@@ -236,7 +288,7 @@ app.post("/api/new-session", async (_req, res) => {
   res.json({ ok });
 });
 
-const publicDir = path.join(__dirname, "..", "public");
+ensureVendorAssets();
 app.use(express.static(publicDir));
 
 app.get("*", (req, res) => {

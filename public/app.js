@@ -9,6 +9,7 @@ const chatSubEl = document.getElementById("chatSub");
 const stopTopBtn = document.getElementById("stopTopBtn");
 const stopBtn = document.getElementById("stopBtn");
 const hangBanner = document.getElementById("hangBanner");
+const hangText = document.getElementById("hangText");
 const restartBtn = document.getElementById("restartBtn");
 const retryBtn = document.getElementById("retryBtn");
 
@@ -33,9 +34,12 @@ function setStatus(text, isBusy) {
   statusEl.style.borderColor = isBusy ? "rgba(14, 99, 156, 0.6)" : "";
 }
 
-function setHangBanner(show) {
+function setHangBanner(show, text) {
   if (!hangBanner) return;
   if (show) {
+    if (hangText && text) {
+      hangText.textContent = text;
+    }
     hangBanner.classList.add("show");
     hangBanner.setAttribute("aria-hidden", "false");
   } else {
@@ -108,8 +112,78 @@ function renderBlock(block) {
   return html;
 }
 
+function buildPreviewHtml(code, language) {
+  const baseStyle =
+    "body{margin:0;background:#111;color:#e6e6e6;font-family:Segoe UI,system-ui,sans-serif;}*{box-sizing:border-box;}";
+  if (language === "svg") {
+    return `<!doctype html><html><head><style>${baseStyle}</style></head><body>${code}</body></html>`;
+  }
+  if (language === "d3" || language === "d3js") {
+    const isHtml = code.includes("<");
+    if (isHtml) {
+      return `<!doctype html><html><head><style>${baseStyle}</style></head><body>${code}</body></html>`;
+    }
+    return `<!doctype html><html><head><style>${baseStyle}</style></head><body><div id="chart"></div><script src="https://d3js.org/d3.v7.min.js"></script><script>${code}</script></body></html>`;
+  }
+  return `<!doctype html><html><head><style>${baseStyle}</style></head><body>${code}</body></html>`;
+}
+
+function buildPreviewFrame(code, language) {
+  const srcdoc = buildPreviewHtml(code, language);
+  const encoded = encodeURIComponent(srcdoc);
+  return `<iframe class="html-preview" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer" data-srcdoc="${encoded}" data-loading="true"></iframe>`;
+}
+
 function renderRichText(rawText) {
-  const escaped = escapeHtml(rawText || "");
+  const text = rawText || "";
+  if (window.marked) {
+    const renderer = new window.marked.Renderer();
+    renderer.code = (code, language) => {
+      const lang = (language || "").toLowerCase();
+      const escaped = escapeHtml(code);
+      let preview = "";
+      if (["html", "svg", "d3", "d3js"].includes(lang)) {
+        preview = buildPreviewFrame(code, lang);
+      }
+      return `${preview}<pre><code class="language-${lang}">${escaped}</code></pre>`;
+    };
+
+    const html = window.marked.parse(text, {
+      renderer,
+      gfm: true,
+      breaks: true,
+    });
+
+    if (window.DOMPurify) {
+      return window.DOMPurify.sanitize(html, {
+        ADD_TAGS: ["iframe", "svg", "path", "g", "circle", "rect", "line", "polyline", "polygon"],
+        ADD_ATTR: [
+          "class",
+          "style",
+          "d",
+          "fill",
+          "stroke",
+          "viewBox",
+          "width",
+          "height",
+          "x",
+          "y",
+          "cx",
+          "cy",
+          "r",
+          "points",
+          "transform",
+          "data-srcdoc",
+          "data-loading",
+          "sandbox",
+          "referrerpolicy",
+        ],
+      });
+    }
+    return html;
+  }
+
+  const escaped = escapeHtml(text);
   const parts = escaped.split("```");
   let html = "";
   parts.forEach((part, index) => {
@@ -129,6 +203,20 @@ function renderRichText(rawText) {
     }
   });
   return html;
+}
+
+function hydratePreviews(container) {
+  if (!container) return;
+  const frames = container.querySelectorAll("iframe[data-srcdoc]");
+  frames.forEach((frame) => {
+    if (frame.dataset.loaded === "true") return;
+    const encoded = frame.dataset.srcdoc || "";
+    frame.srcdoc = decodeURIComponent(encoded);
+    frame.dataset.loaded = "true";
+    frame.onload = () => {
+      frame.removeAttribute("data-loading");
+    };
+  });
 }
 
 function roleLabel(role) {
@@ -206,6 +294,7 @@ function renderMessages(history, showThinking, pendingPermission) {
     const content = document.createElement("div");
     content.className = "message-content";
     content.innerHTML = renderRichText(normalizeContent(item.message?.content));
+    hydratePreviews(content);
 
     msg.appendChild(roleEl);
     msg.appendChild(content);
@@ -261,6 +350,7 @@ function appendPermissionCard(pending) {
       2,
     )}`,
   );
+  hydratePreviews(content);
 
   const actions = document.createElement("div");
   actions.className = "permission-actions";
@@ -338,13 +428,24 @@ async function updateState() {
       if (state.isProcessing && processingStartAt && !pending) {
         const elapsed = Date.now() - processingStartAt;
         if (elapsed > HANG_THRESHOLD_MS) {
-          setHangBanner(true);
+          setHangBanner(
+            true,
+            "No response yet. You can stop and restart the session.",
+          );
           setStatus("No response yet", true);
         }
       }
     }
   } catch (_err) {
-    setStatus("Disconnected", false);
+    setStatus("Backend disconnected", false);
+    if (!viewingSession) {
+      renderMessages(liveState.session?.history || [], false, null);
+    }
+    updateProcessingUI(false);
+    setHangBanner(
+      true,
+      "Backend disconnected. Please restart the session.",
+    );
   }
 }
 

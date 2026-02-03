@@ -296,6 +296,25 @@ body {
   color: #e6e6e6;
 }
 
+.html-preview {
+  width: 100%;
+  min-height: 240px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: #111;
+  margin: 10px 0;
+}
+
+.html-preview[data-loading="true"] {
+  background: repeating-linear-gradient(
+    45deg,
+    #1b1b1b,
+    #1b1b1b 10px,
+    #202020 10px,
+    #202020 20px
+  );
+}
+
 .permission-card {
   border: 1px solid rgba(210, 153, 34, 0.6);
   background: rgba(210, 153, 34, 0.15);

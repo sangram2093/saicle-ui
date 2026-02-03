@@ -13,7 +13,9 @@
     "build:pkg": "pkg . --targets node18-win-x64 --output dist/saicle-ui.exe"
   },
   "dependencies": {
+    "dompurify": "^3.1.6",
     "express": "^4.19.2",
+    "marked": "^12.0.2",
     "open": "^11.0.0"
   },
   "pkg": {
