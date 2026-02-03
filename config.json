@@ -3,5 +3,6 @@
   "cliConfigPath": "C:\\Users\\sangr\\.dbsaicle\\config.yaml",
   "uiPort": 4173,
   "cliPort": 8000,
-  "cliTimeoutSeconds": 3600
+  "cliTimeoutSeconds": 3600,
+  "cliExtraArgs": ["--auto"]
 }
