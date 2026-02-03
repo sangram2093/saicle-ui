@@ -1,0 +1,7 @@
+{
+  "cliPath": "C:\\Users\\sangr\\Downloads\\sangram\\developments\\saicle\\extensions\\cli\\dist\\cn.js",
+  "cliConfigPath": "C:\\Users\\sangr\\.dbsaicle\\config.yaml",
+  "uiPort": 4173,
+  "cliPort": 8000,
+  "cliTimeoutSeconds": 3600
+}

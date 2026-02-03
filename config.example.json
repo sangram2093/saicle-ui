@@ -1,0 +1,7 @@
+{
+  "cliPath": "C:\\path\\to\\cn.js",
+  "cliConfigPath": "C:\\Users\\<user>\\.dbsaicle\\config.yaml",
+  "uiPort": 4173,
+  "cliPort": 8000,
+  "cliTimeoutSeconds": 3600
+}

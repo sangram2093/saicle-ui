@@ -1,0 +1,24 @@
+{
+  "name": "saicle-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js --dev",
+    "build:pkg": "pkg . --targets node18-win-x64 --output dist/saicle-ui.exe"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "open": "^11.0.0"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ]
+  }
+}

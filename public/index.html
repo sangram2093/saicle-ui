@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>dbSAIcle UI</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">
+            <img src="dbsaicle-logo.jpeg" alt="dbSAIcle logo" />
+          </div>
+          <div class="brand-text">
+            <div class="brand-name">dbSAIcle</div>
+            <div class="brand-sub">Local Assistant</div>
+          </div>
+        </div>
+
+        <button class="primary-btn" id="newChatBtn" type="button">New Chat</button>
+
+        <div class="panel">
+          <div class="panel-title">History</div>
+          <div class="sessions" id="sessions"></div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="chat-title" id="chatTitle">Chat</div>
+            <div class="chat-sub" id="chatSub">Live session</div>
+          </div>
+          <div class="topbar-right">
+            <span class="status" id="status">Idle</span>
+          </div>
+        </header>
+
+        <section class="chat" id="chat"></section>
+
+        <div class="input-panel">
+          <div class="hang-banner" id="hangBanner" aria-hidden="true">
+            <div class="hang-text">
+              No response yet. You can stop and restart the session.
+            </div>
+            <div class="hang-actions">
+              <button class="secondary-btn" id="retryBtn" type="button">
+                Retry last message
+              </button>
+              <button class="primary-btn" id="restartBtn" type="button">
+                Restart session
+              </button>
+            </div>
+          </div>
+          <div class="input-toolbar">
+            <button class="mode-btn active" type="button">Chat</button>
+            <button class="mode-btn" type="button">Plan</button>
+            <button class="mode-btn" type="button">Auto</button>
+          </div>
+          <textarea
+            id="prompt"
+            class="prompt"
+            placeholder="Ask dbSAIcle to help with analysis, SQL, docs, or clarifications..."
+          ></textarea>
+          <div class="input-actions">
+            <span class="hint">Enter to send · Shift+Enter for newline</span>
+            <div class="action-buttons">
+              <button class="secondary-btn" id="stopBtn" type="button">
+                Stop
+              </button>
+              <button class="primary-btn" id="sendBtn" type="button">
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div class="modal" id="permissionModal" aria-hidden="true">
+      <div class="modal-card">
+        <div class="modal-title">Tool permission required</div>
+        <div class="modal-body" id="permissionBody"></div>
+        <div class="modal-actions">
+          <button class="secondary-btn" id="denyBtn" type="button">Deny</button>
+          <button class="primary-btn" id="allowBtn" type="button">Allow</button>
+        </div>
+      </div>
+    </div>
+
+    <script defer src="app.js"></script>
+  </body>
+</html>
