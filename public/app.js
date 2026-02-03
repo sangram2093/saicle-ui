@@ -6,6 +6,7 @@ const sessionsEl = document.getElementById("sessions");
 const newChatBtn = document.getElementById("newChatBtn");
 const chatTitleEl = document.getElementById("chatTitle");
 const chatSubEl = document.getElementById("chatSub");
+const stopTopBtn = document.getElementById("stopTopBtn");
 const stopBtn = document.getElementById("stopBtn");
 const hangBanner = document.getElementById("hangBanner");
 const restartBtn = document.getElementById("restartBtn");
@@ -68,6 +69,68 @@ function normalizeContent(content) {
   return "";
 }
 
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function renderInline(text) {
+  return text.replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function renderBlock(block) {
+  const lines = block.split("\n");
+  let html = "";
+  let inList = false;
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    const match = trimmed.match(/^[-*]\s+(.*)/);
+    if (match) {
+      if (!inList) {
+        html += "<ul>";
+        inList = true;
+      }
+      html += `<li>${renderInline(match[1])}</li>`;
+      return;
+    }
+    if (inList) {
+      html += "</ul>";
+      inList = false;
+    }
+    if (trimmed.length === 0) return;
+    html += `<p>${renderInline(trimmed)}</p>`;
+  });
+  if (inList) {
+    html += "</ul>";
+  }
+  return html;
+}
+
+function renderRichText(rawText) {
+  const escaped = escapeHtml(rawText || "");
+  const parts = escaped.split("```");
+  let html = "";
+  parts.forEach((part, index) => {
+    if (index % 2 === 1) {
+      const lines = part.split("\n");
+      let language = "";
+      if (lines.length > 1 && /^[a-zA-Z0-9+-]+$/.test(lines[0].trim())) {
+        language = lines.shift().trim();
+      }
+      const code = lines.join("\n");
+      html += `<pre><code${language ? ` data-lang="${language}"` : ""}>${code}</code></pre>`;
+    } else {
+      const blocks = part.split(/\n{2,}/);
+      blocks.forEach((block) => {
+        html += renderBlock(block);
+      });
+    }
+  });
+  return html;
+}
+
 function roleLabel(role) {
   if (role === "assistant" || role === "thinking") return "dbSAIcle";
   if (role === "user") return "You";
@@ -116,7 +179,7 @@ function renderToolCalls(toolCallStates, container) {
   container.appendChild(wrapper);
 }
 
-function renderMessages(history, showThinking) {
+function renderMessages(history, showThinking, pendingPermission) {
   chatEl.innerHTML = "";
 
   if (!history || history.length === 0) {
@@ -125,7 +188,7 @@ function renderMessages(history, showThinking) {
     empty.innerHTML =
       '<div class="message-role">dbSAIcle</div><div class="message-content">Start a conversation to see responses here.</div>';
     chatEl.appendChild(empty);
-    if (showThinking) {
+    if (showThinking && !pendingPermission) {
       appendThinkingMessage();
     }
     return;
@@ -142,7 +205,7 @@ function renderMessages(history, showThinking) {
 
     const content = document.createElement("div");
     content.className = "message-content";
-    content.textContent = normalizeContent(item.message?.content);
+    content.innerHTML = renderRichText(normalizeContent(item.message?.content));
 
     msg.appendChild(roleEl);
     msg.appendChild(content);
@@ -154,7 +217,9 @@ function renderMessages(history, showThinking) {
     chatEl.appendChild(msg);
   });
 
-  if (showThinking) {
+  if (pendingPermission) {
+    appendPermissionCard(pendingPermission);
+  } else if (showThinking) {
     appendThinkingMessage();
   }
 
@@ -179,6 +244,61 @@ function appendThinkingMessage() {
   chatEl.appendChild(msg);
 }
 
+function appendPermissionCard(pending) {
+  const msg = document.createElement("div");
+  msg.className = "permission-card message assistant";
+
+  const roleEl = document.createElement("div");
+  roleEl.className = "message-role";
+  roleEl.textContent = "dbSAIcle";
+
+  const content = document.createElement("div");
+  content.className = "message-content";
+  content.innerHTML = renderRichText(
+    `Tool requires permission: ${pending.toolName}\n\nArgs:\n${JSON.stringify(
+      pending.toolArgs,
+      null,
+      2,
+    )}`,
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "permission-actions";
+
+  const deny = document.createElement("button");
+  deny.className = "secondary-btn";
+  deny.type = "button";
+  deny.textContent = "Deny";
+  deny.onclick = async () => {
+    await fetchJson("/api/permission", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: pending.requestId, approved: false }),
+    });
+  };
+
+  const allow = document.createElement("button");
+  allow.className = "primary-btn";
+  allow.type = "button";
+  allow.textContent = "Allow";
+  allow.onclick = async () => {
+    await fetchJson("/api/permission", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: pending.requestId, approved: true }),
+    });
+  };
+
+  actions.appendChild(deny);
+  actions.appendChild(allow);
+
+  msg.appendChild(roleEl);
+  msg.appendChild(content);
+  msg.appendChild(actions);
+
+  chatEl.appendChild(msg);
+}
+
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   if (!res.ok) {
@@ -193,6 +313,7 @@ async function updateState() {
     const state = await fetchJson("/api/state");
     const wasProcessing = liveState.isProcessing;
     liveState = state;
+    const pending = state.pendingPermission;
 
     if (state.isProcessing && !wasProcessing) {
       processingStartAt = Date.now();
@@ -202,12 +323,19 @@ async function updateState() {
     }
 
     if (!viewingSession) {
-      renderMessages(state.session?.history || [], state.isProcessing);
-      setStatus(state.isProcessing ? "Processing" : "Idle", state.isProcessing);
-      handlePermission(state.pendingPermission);
+      renderMessages(state.session?.history || [], state.isProcessing, pending);
+      if (pending) {
+        setStatus("Waiting for approval", true);
+      } else {
+        setStatus(
+          state.isProcessing ? "Processing" : "Idle",
+          state.isProcessing,
+        );
+      }
+      handlePermission(pending);
       updateProcessingUI(state.isProcessing);
 
-      if (state.isProcessing && processingStartAt) {
+      if (state.isProcessing && processingStartAt && !pending) {
         const elapsed = Date.now() - processingStartAt;
         if (elapsed > HANG_THRESHOLD_MS) {
           setHangBanner(true);
@@ -332,7 +460,7 @@ async function viewSession(sessionId, title) {
     viewingSession = { id: sessionId, session };
     chatTitleEl.textContent = title || "Chat";
     chatSubEl.textContent = "Read-only session";
-    renderMessages(session.history || [], false);
+    renderMessages(session.history || [], false, null);
     setStatus("Viewing history", false);
     sendBtn.disabled = true;
     promptEl.disabled = true;
@@ -360,13 +488,13 @@ async function restartSession() {
   loadSessions();
 }
 
-newChatBtn.addEventListener("click", async () => {
-  await fetchJson("/api/new-session", { method: "POST" });
-  setLiveSessionView();
-  loadSessions();
-});
+newChatBtn.addEventListener("click", restartSession);
 
 sendBtn.addEventListener("click", sendMessage);
+
+if (stopTopBtn) {
+  stopTopBtn.addEventListener("click", restartSession);
+}
 
 if (stopBtn) {
   stopBtn.addEventListener("click", restartSession);
