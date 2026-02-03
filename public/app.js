@@ -192,6 +192,15 @@ function detectPreviewLanguage(code, language) {
   return null;
 }
 
+function getAssetUrl(assetPath) {
+  if (!assetPath) return "";
+  if (/^https?:\/\//i.test(assetPath)) return assetPath;
+  const normalized = assetPath.startsWith("/") ? assetPath : `/${assetPath}`;
+  if (typeof window === "undefined") return normalized;
+  const origin = window.location && window.location.origin ? window.location.origin : "";
+  return origin ? `${origin}${normalized}` : normalized;
+}
+
 function findAutoPreview(text) {
   if (!text) return null;
   if (/```/.test(text)) return null;
@@ -218,9 +227,13 @@ function findAutoPreview(text) {
 
 function buildPreviewHtml(code, language) {
   const baseStyle =
-    "body{margin:0;padding:12px;background:#111;color:#e6e6e6;font-family:Segoe UI,system-ui,sans-serif;}*{box-sizing:border-box;}";
+    "body{margin:0;padding:12px;background:#ffffff;color:#111111;font-family:Segoe UI,system-ui,sans-serif;}*{box-sizing:border-box;}";
   const trimmed = (code || "").trim();
   const hasHtmlDoc = /<!doctype html>/i.test(trimmed) || /<html[\s>]/i.test(trimmed);
+  const usesD3 = looksLikeD3(trimmed);
+  const hasD3Script = /d3\.v\d+\.min\.js|d3js\.org|d3\.min\.js/i.test(trimmed);
+  const localD3 = getAssetUrl("/vendor/d3.v7.min.js");
+  const d3Script = `<script src="${localD3}" onerror="this.onerror=null;this.src='https://d3js.org/d3.v7.min.js';"></script>`;
   if (hasHtmlDoc) {
     return trimmed;
   }
@@ -230,10 +243,10 @@ function buildPreviewHtml(code, language) {
     if (isHtml) {
       return `<!doctype html><html><head><meta charset="utf-8"/><style>${baseStyle}</style></head><body>${trimmed}</body></html>`;
     }
-    return `<!doctype html><html><head><meta charset="utf-8"/><style>${baseStyle}</style></head><body><div id="chart"></div><script src="https://d3js.org/d3.v7.min.js"></script><script>${trimmed}</script></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"/><style>${baseStyle}</style></head><body><div id="chart"></div>${d3Script}<script>${trimmed}</script></body></html>`;
   }
 
-  return `<!doctype html><html><head><meta charset="utf-8"/><style>${baseStyle}</style></head><body>${trimmed}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"/><style>${baseStyle}</style>${usesD3 && !hasD3Script ? d3Script : ""}</head><body>${trimmed}</body></html>`;
 }
 
 function buildPreviewFrame(code, language) {
