@@ -557,10 +557,21 @@ body {
 
 .credentials-card {
   width: min(680px, 92vw);
-  max-height: 80vh;
+  max-height: 85vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.credentials-card .modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  white-space: normal;
 }
 
 .credentials-note {
@@ -606,8 +617,8 @@ body {
   padding-top: 10px;
   display: grid;
   gap: 8px;
-  max-height: 28vh;
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .secret-list {
