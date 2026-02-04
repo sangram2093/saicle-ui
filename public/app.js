@@ -12,11 +12,24 @@ const hangBanner = document.getElementById("hangBanner");
 const hangText = document.getElementById("hangText");
 const restartBtn = document.getElementById("restartBtn");
 const retryBtn = document.getElementById("retryBtn");
+const credentialsBtn = document.getElementById("credentialsBtn");
 
 const permissionModal = document.getElementById("permissionModal");
 const permissionBody = document.getElementById("permissionBody");
 const allowBtn = document.getElementById("allowBtn");
 const denyBtn = document.getElementById("denyBtn");
+
+const credentialsModal = document.getElementById("credentialsModal");
+const secretMode = document.getElementById("secretMode");
+const secretKeyField = document.getElementById("secretKeyField");
+const secretKeyInput = document.getElementById("secretKey");
+const secretService = document.getElementById("secretService");
+const secretProfile = document.getElementById("secretProfile");
+const secretField = document.getElementById("secretField");
+const secretValue = document.getElementById("secretValue");
+const secretSaveBtn = document.getElementById("secretSaveBtn");
+const secretCancelBtn = document.getElementById("secretCancelBtn");
+const secretList = document.getElementById("secretList");
 
 let liveState = {
   session: { history: [] },
@@ -31,6 +44,27 @@ const HANG_THRESHOLD_MS = 45000;
 const SCROLL_BOTTOM_THRESHOLD = 32;
 let autoScrollEnabled = true;
 let lastRenderKey = "";
+let activeSpeechKey = null;
+
+const SERVICE_FIELDS = {
+  servicenow: [
+    "auth.type",
+    "auth.basic.username",
+    "auth.basic.password",
+    "auth.apiKey.apiKey",
+    "auth.apiKey.headerName",
+    "auth.oauth.clientId",
+    "auth.oauth.clientSecret",
+    "auth.oauth.username",
+    "auth.oauth.password",
+    "auth.oauth.tokenUrl",
+  ],
+  jira: ["apiToken"],
+  confluence: ["apiToken"],
+  bitbucket: ["apiToken"],
+  veracode: ["apiKeySecret"],
+  ossVulnerability: ["jfrogAccessToken", "jfrogPlatformUrl"],
+};
 
 function isNearBottom(container) {
   if (!container) return true;
@@ -92,6 +126,68 @@ function normalizeContent(content) {
       .join("\n");
   }
   return "";
+}
+
+function getMessageText(item) {
+  return normalizeContent(item?.message?.content);
+}
+
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function getMessageSignature(item, index) {
+  const role = item?.message?.role || "assistant";
+  const text = getMessageText(item) || "";
+  return `${role}-${index}-${hashString(text).slice(0, 8)}`;
+}
+
+function getFeedbackKey(sessionId, signature) {
+  return `feedback:${sessionId || "session"}:${signature}`;
+}
+
+function getFeedbackState(sessionId, signature) {
+  try {
+    const value = localStorage.getItem(getFeedbackKey(sessionId, signature));
+    if (value === "true") return true;
+    if (value === "false") return false;
+  } catch (_err) {
+    return undefined;
+  }
+  return undefined;
+}
+
+function setFeedbackState(sessionId, signature, value) {
+  try {
+    localStorage.setItem(getFeedbackKey(sessionId, signature), String(value));
+  } catch (_err) {
+    // ignore storage errors
+  }
+}
+
+async function copyToClipboard(text) {
+  if (!text) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch (_err) {
+    // fallback below
+  }
+  const temp = document.createElement("textarea");
+  temp.value = text;
+  temp.style.position = "fixed";
+  temp.style.opacity = "0";
+  document.body.appendChild(temp);
+  temp.select();
+  document.execCommand("copy");
+  temp.remove();
 }
 
 function stringifyValue(value) {
@@ -364,11 +460,261 @@ function hydratePreviews(container) {
   });
 }
 
+function refreshSecretFieldOptions() {
+  if (!secretField || !secretService) return;
+  const service = secretService.value;
+  const fields = SERVICE_FIELDS[service] || [];
+  secretField.innerHTML = "";
+  fields.forEach((field) => {
+    const option = document.createElement("option");
+    option.value = field;
+    option.textContent = field;
+    secretField.appendChild(option);
+  });
+}
+
+function toggleCredentialsMode() {
+  const isCustom = !secretMode || secretMode.value === "custom";
+  if (secretKeyField) {
+    secretKeyField.style.display = isCustom ? "grid" : "none";
+  }
+  if (secretService && secretProfile && secretField) {
+    const container = document.getElementById("serviceFields");
+    if (container) {
+      container.style.display = isCustom ? "none" : "grid";
+    }
+  }
+}
+
+async function loadSecretList() {
+  if (!secretList) return;
+  secretList.innerHTML = "";
+  try {
+    const data = await fetchJson("/api/secret/list");
+    if (!data.keys || data.keys.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "session-meta";
+      empty.textContent = "No stored secrets yet.";
+      secretList.appendChild(empty);
+      return;
+    }
+
+    data.keys.forEach((key) => {
+      const row = document.createElement("div");
+      row.className = "secret-item";
+
+      const name = document.createElement("div");
+      name.className = "secret-key";
+      name.textContent = key;
+
+      const del = document.createElement("button");
+      del.className = "secondary-btn";
+      del.type = "button";
+      del.textContent = "Delete";
+      del.onclick = async () => {
+        await fetchJson("/api/secret/delete", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
+        loadSecretList();
+      };
+
+      row.appendChild(name);
+      row.appendChild(del);
+      secretList.appendChild(row);
+    });
+  } catch (_err) {
+    const error = document.createElement("div");
+    error.className = "session-meta";
+    error.textContent = "Failed to load secrets.";
+    secretList.appendChild(error);
+  }
+}
+
+async function saveSecret() {
+  if (!secretValue || !secretMode) return;
+  const mode = secretMode.value || "custom";
+  const value = secretValue.value.trim();
+  if (!value) return;
+
+  let key = "";
+  if (mode === "service") {
+    const service = secretService?.value;
+    const profile = (secretProfile?.value || "default").trim();
+    const field = secretField?.value;
+    if (!service || !field) return;
+    key = `dbsaicle.${service}.${profile}.${field}`;
+  } else {
+    key = (secretKeyInput?.value || "").trim();
+  }
+
+  if (!key) return;
+
+  await fetchJson("/api/secret/set", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+
+  secretValue.value = "";
+  if (secretKeyInput) {
+    secretKeyInput.value = "";
+  }
+  loadSecretList();
+}
+
+function openCredentialsModal() {
+  if (!credentialsModal) return;
+  refreshSecretFieldOptions();
+  toggleCredentialsMode();
+  credentialsModal.classList.add("show");
+  credentialsModal.setAttribute("aria-hidden", "false");
+  loadSecretList();
+}
+
+function closeCredentialsModal() {
+  if (!credentialsModal) return;
+  credentialsModal.classList.remove("show");
+  credentialsModal.setAttribute("aria-hidden", "true");
+}
+
 function roleLabel(role) {
   if (role === "assistant" || role === "thinking") return "dbSAIcle";
   if (role === "user") return "You";
   if (role === "system") return "System";
   return role || "dbSAIcle";
+}
+
+function createActionButton(label, options = {}) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `action-btn${options.className ? ` ${options.className}` : ""}`;
+  btn.textContent = label;
+  if (options.onClick) {
+    btn.addEventListener("click", options.onClick);
+  }
+  return btn;
+}
+
+function buildMessageActions(item, index, isLast) {
+  const role = item.message?.role || "assistant";
+  if (role === "system") return null;
+
+  const actions = document.createElement("div");
+  actions.className = "message-actions";
+
+  const messageText = getMessageText(item);
+  const signature = getMessageSignature(item, index);
+  const sessionId = liveState.session?.sessionId || "";
+
+  if (role === "assistant" && isLast) {
+    actions.appendChild(
+      createActionButton("Compact conversation", {
+        className: "primary",
+        onClick: async () => {
+          if (viewingSession) return;
+          setStatus("Compacting", true);
+          try {
+            await fetchJson("/api/compact", { method: "POST" });
+            await updateState();
+          } catch (_err) {
+            setStatus("Compact failed", false);
+          }
+        },
+      }),
+    );
+
+    actions.appendChild(
+      createActionButton("Generate rule", {
+        onClick: async () => {
+          if (viewingSession) return;
+          const prompt =
+            "Generate a dbSAIcle rule based on our conversation. Return:\n" +
+            "- Rule name\n- Short description\n- Rule text in markdown\n";
+          await sendMessage(prompt);
+        },
+      }),
+    );
+  }
+
+  actions.appendChild(
+    createActionButton("Delete", {
+      className: "danger",
+      onClick: async () => {
+        if (viewingSession) return;
+        await fetchJson("/api/delete", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ index }),
+        });
+        await updateState();
+      },
+    }),
+  );
+
+  if (role === "assistant" && "speechSynthesis" in window) {
+    const isSpeaking = activeSpeechKey === signature;
+    actions.appendChild(
+      createActionButton(isSpeaking ? "Stop reading" : "Read aloud", {
+        className: isSpeaking ? "active" : "",
+        onClick: () => {
+          if (!messageText) return;
+          if (activeSpeechKey === signature) {
+            window.speechSynthesis.cancel();
+            activeSpeechKey = null;
+            renderMessages(liveState.session?.history || [], liveState.isProcessing, liveState.pendingPermission);
+            return;
+          }
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(messageText);
+          utterance.onend = () => {
+            activeSpeechKey = null;
+            renderMessages(liveState.session?.history || [], liveState.isProcessing, liveState.pendingPermission);
+          };
+          utterance.onerror = () => {
+            activeSpeechKey = null;
+            renderMessages(liveState.session?.history || [], liveState.isProcessing, liveState.pendingPermission);
+          };
+          activeSpeechKey = signature;
+          window.speechSynthesis.speak(utterance);
+          renderMessages(liveState.session?.history || [], liveState.isProcessing, liveState.pendingPermission);
+        },
+      }),
+    );
+  }
+
+  actions.appendChild(
+    createActionButton("Copy", {
+      onClick: async () => {
+        await copyToClipboard(messageText);
+      },
+    }),
+  );
+
+  if (role === "assistant") {
+    const feedback = getFeedbackState(sessionId, signature);
+    actions.appendChild(
+      createActionButton("Helpful", {
+        className: feedback === true ? "active" : "",
+        onClick: () => {
+          setFeedbackState(sessionId, signature, true);
+          renderMessages(liveState.session?.history || [], liveState.isProcessing, liveState.pendingPermission);
+        },
+      }),
+    );
+    actions.appendChild(
+      createActionButton("Unhelpful", {
+        className: feedback === false ? "active" : "",
+        onClick: () => {
+          setFeedbackState(sessionId, signature, false);
+          renderMessages(liveState.session?.history || [], liveState.isProcessing, liveState.pendingPermission);
+        },
+      }),
+    );
+  }
+
+  return actions;
 }
 
 function renderToolCalls(toolCallStates, container) {
@@ -433,7 +779,7 @@ function renderMessages(history, showThinking, pendingPermission) {
     return;
   }
 
-  history.forEach((item) => {
+  history.forEach((item, index) => {
     const role = item.message?.role || "assistant";
     const msg = document.createElement("div");
     msg.className = `message ${role}`;
@@ -452,6 +798,15 @@ function renderMessages(history, showThinking, pendingPermission) {
 
     if (role === "assistant" && item.toolCallStates) {
       renderToolCalls(item.toolCallStates, msg);
+    }
+
+    const actions = buildMessageActions(
+      item,
+      index,
+      index === history.length - 1,
+    );
+    if (actions) {
+      msg.appendChild(actions);
     }
 
     chatEl.appendChild(msg);
@@ -785,6 +1140,34 @@ if (retryBtn) {
   });
 }
 
+if (credentialsBtn) {
+  credentialsBtn.addEventListener("click", openCredentialsModal);
+}
+
+if (credentialsModal) {
+  credentialsModal.addEventListener("click", (event) => {
+    if (event.target === credentialsModal) {
+      closeCredentialsModal();
+    }
+  });
+}
+
+if (secretCancelBtn) {
+  secretCancelBtn.addEventListener("click", closeCredentialsModal);
+}
+
+if (secretSaveBtn) {
+  secretSaveBtn.addEventListener("click", saveSecret);
+}
+
+if (secretMode) {
+  secretMode.addEventListener("change", toggleCredentialsMode);
+}
+
+if (secretService) {
+  secretService.addEventListener("change", refreshSecretFieldOptions);
+}
+
 promptEl.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -805,4 +1188,6 @@ chatSubEl.addEventListener("click", () => {
   if (chatEl) {
     chatEl.addEventListener("scroll", updateAutoScrollState);
   }
+  refreshSecretFieldOptions();
+  toggleCredentialsMode();
 })();

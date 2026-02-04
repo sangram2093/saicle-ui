@@ -20,6 +20,9 @@
         </div>
 
         <button class="primary-btn" id="newChatBtn" type="button">New Chat</button>
+        <button class="secondary-btn" id="credentialsBtn" type="button">
+          Credentials
+        </button>
 
         <div class="panel">
           <div class="panel-title">History</div>
@@ -89,6 +92,85 @@
         <div class="modal-actions">
           <button class="secondary-btn" id="denyBtn" type="button">Deny</button>
           <button class="primary-btn" id="allowBtn" type="button">Allow</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="credentialsModal" aria-hidden="true">
+      <div class="modal-card credentials-card">
+        <div class="modal-title">Credentials</div>
+        <div class="modal-body">
+          <div class="credentials-note">
+            Store secrets in the OS keychain. In config.yaml, reference them using
+            <span class="mono">${{ secrets.MY_SECRET }}</span> or
+            <span class="mono">secretProfile</span> for integrations.
+          </div>
+          <div class="credentials-form">
+            <label class="field">
+              <span class="field-label">Mode</span>
+              <select id="secretMode" class="field-input">
+                <option value="custom">Custom key (e.g. OPENAI_API_KEY)</option>
+                <option value="service">Service profile</option>
+              </select>
+            </label>
+            <label class="field" id="secretKeyField">
+              <span class="field-label">Secret key</span>
+              <input
+                id="secretKey"
+                class="field-input"
+                placeholder="OPENAI_API_KEY"
+                autocomplete="off"
+              />
+            </label>
+            <div id="serviceFields" class="service-fields">
+              <label class="field">
+                <span class="field-label">Service</span>
+                <select id="secretService" class="field-input">
+                  <option value="servicenow">ServiceNow</option>
+                  <option value="jira">Jira</option>
+                  <option value="confluence">Confluence</option>
+                  <option value="bitbucket">Bitbucket</option>
+                  <option value="veracode">Veracode</option>
+                  <option value="ossVulnerability">OSS Vulnerability</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field-label">Profile</span>
+                <input
+                  id="secretProfile"
+                  class="field-input"
+                  placeholder="default"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="field">
+                <span class="field-label">Field</span>
+                <select id="secretField" class="field-input"></select>
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">Value</span>
+              <input
+                id="secretValue"
+                class="field-input"
+                type="password"
+                placeholder="Enter secret value"
+                autocomplete="new-password"
+              />
+            </label>
+            <div class="modal-actions">
+              <button class="secondary-btn" id="secretCancelBtn" type="button">
+                Close
+              </button>
+              <button class="primary-btn" id="secretSaveBtn" type="button">
+                Save
+              </button>
+            </div>
+          </div>
+          <div class="credentials-list">
+            <div class="panel-title">Stored keys</div>
+            <div id="secretList" class="secret-list"></div>
+          </div>
         </div>
       </div>
     </div>

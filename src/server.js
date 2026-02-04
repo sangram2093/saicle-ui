@@ -67,6 +67,30 @@ function buildCliCommand(cliPath) {
   return { command: cliPath, args: [] };
 }
 
+function runCliCommand(args) {
+  return new Promise((resolve) => {
+    const { command, args: baseArgs } = buildCliCommand(config.cliPath);
+    const child = spawn(command, [...baseArgs, ...args], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("close", (code) => {
+      resolve({ code: code ?? 0, stdout, stderr });
+    });
+  });
+}
+
 function logCliOutput(prefix, chunk) {
   const text = chunk.toString();
   if (config.dev) {
@@ -253,6 +277,14 @@ app.post("/api/permission", async (req, res) => {
   await proxyJson(req, res, "POST", "/permission");
 });
 
+app.post("/api/compact", async (req, res) => {
+  await proxyJson(req, res, "POST", "/compact");
+});
+
+app.post("/api/delete", async (req, res) => {
+  await proxyJson(req, res, "POST", "/delete");
+});
+
 app.get("/api/diff", async (req, res) => {
   await proxyJson(req, res, "GET", "/diff");
 });
@@ -260,6 +292,69 @@ app.get("/api/diff", async (req, res) => {
 app.post("/api/exit", async (req, res) => {
   await proxyJson(req, res, "POST", "/exit");
   await stopCli();
+});
+
+app.get("/api/secret/list", async (_req, res) => {
+  try {
+    const result = await runCliCommand(["secret", "list"]);
+    if (result.code !== 0) {
+      res.status(500).json({ error: result.stderr || "Secret list failed" });
+      return;
+    }
+    const keys = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    res.json({ keys });
+  } catch (err) {
+    res.status(500).json({
+      error: err && err.message ? err.message : String(err),
+    });
+  }
+});
+
+app.post("/api/secret/set", async (req, res) => {
+  const { key, value } = req.body || {};
+  if (!key || typeof key !== "string") {
+    res.status(400).json({ error: "key is required" });
+    return;
+  }
+  if (!value || typeof value !== "string") {
+    res.status(400).json({ error: "value is required" });
+    return;
+  }
+  try {
+    const result = await runCliCommand(["secret", "set", key, value]);
+    if (result.code !== 0) {
+      res.status(500).json({ error: result.stderr || "Secret set failed" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({
+      error: err && err.message ? err.message : String(err),
+    });
+  }
+});
+
+app.post("/api/secret/delete", async (req, res) => {
+  const { key } = req.body || {};
+  if (!key || typeof key !== "string") {
+    res.status(400).json({ error: "key is required" });
+    return;
+  }
+  try {
+    const result = await runCliCommand(["secret", "delete", key]);
+    if (result.code !== 0) {
+      res.status(500).json({ error: result.stderr || "Secret delete failed" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({
+      error: err && err.message ? err.message : String(err),
+    });
+  }
 });
 
 app.get("/api/sessions", (_req, res) => {
