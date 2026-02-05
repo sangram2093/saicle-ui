@@ -219,7 +219,8 @@ body {
   border-radius: 12px;
   box-shadow: var(--shadow);
   max-width: 860px;
-  line-height: 1.5;
+  line-height: 1.45;
+  font-size: 13px;
   user-select: text;
 }
 
@@ -249,7 +250,7 @@ body {
 }
 
 .message-role {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -482,7 +483,7 @@ body {
   background: var(--input);
   color: var(--text);
   resize: vertical;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -619,6 +620,78 @@ body {
   gap: 8px;
   max-height: none;
   overflow: visible;
+}
+
+.terminal-card {
+  width: min(860px, 94vw);
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.terminal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.terminal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.terminal-output {
+  flex: 1;
+  min-height: 0;
+  background: #111;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 12px;
+  overflow-y: auto;
+  font-family: Consolas, "JetBrains Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #e6e6e6;
+  white-space: pre-wrap;
+}
+
+.terminal-line {
+  white-space: pre-wrap;
+}
+
+.terminal-line.command {
+  color: var(--accent);
+}
+
+.terminal-line.error {
+  color: var(--error);
+}
+
+.terminal-line.meta {
+  color: var(--muted);
+}
+
+.terminal-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.terminal-input {
+  flex: 1;
+  font-family: Consolas, "JetBrains Mono", "Courier New", monospace;
+  font-size: 12px;
 }
 
 .secret-list {

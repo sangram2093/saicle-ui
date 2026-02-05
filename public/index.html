@@ -23,6 +23,9 @@
         <button class="secondary-btn" id="credentialsBtn" type="button">
           Credentials
         </button>
+        <button class="secondary-btn" id="terminalBtn" type="button">
+          Terminal
+        </button>
 
         <div class="panel">
           <div class="panel-title">History</div>
@@ -170,6 +173,40 @@
           <div class="credentials-list">
             <div class="panel-title">Stored keys</div>
             <div id="secretList" class="secret-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="terminalModal" aria-hidden="true">
+      <div class="modal-card terminal-card">
+        <div class="modal-title">Terminal</div>
+        <div class="terminal-body">
+          <div class="terminal-toolbar">
+            <label class="field">
+              <span class="field-label">Shell</span>
+              <select id="terminalShell" class="field-input"></select>
+            </label>
+            <div class="terminal-actions">
+              <button class="secondary-btn" id="terminalClearBtn" type="button">
+                Clear
+              </button>
+              <button class="secondary-btn" id="terminalCloseBtn" type="button">
+                Close
+              </button>
+            </div>
+          </div>
+          <div id="terminalOutput" class="terminal-output" aria-live="polite"></div>
+          <div class="terminal-input-row">
+            <input
+              id="terminalCommand"
+              class="field-input terminal-input"
+              placeholder="Enter command"
+              autocomplete="off"
+            />
+            <button class="primary-btn" id="terminalRunBtn" type="button">
+              Run
+            </button>
           </div>
         </div>
       </div>

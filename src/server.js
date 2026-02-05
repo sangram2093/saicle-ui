@@ -91,6 +91,58 @@ function runCliCommand(args) {
   });
 }
 
+function resolveTerminalShell(shellHint) {
+  const hint = (shellHint || "").toLowerCase();
+  if (process.platform === "win32") {
+    if (hint === "cmd") {
+      return { command: "cmd.exe", args: ["/d", "/s", "/c"] };
+    }
+    return {
+      command: "powershell.exe",
+      args: ["-NoLogo", "-ExecutionPolicy", "Bypass", "-Command"],
+    };
+  }
+
+  if (hint === "bash") {
+    return { command: "/bin/bash", args: ["-l", "-c"] };
+  }
+  if (hint === "zsh") {
+    return { command: "/bin/zsh", args: ["-l", "-c"] };
+  }
+
+  const userShell = process.env.SHELL || "/bin/bash";
+  return { command: userShell, args: ["-l", "-c"] };
+}
+
+function runTerminalCommand(command, shellHint) {
+  return new Promise((resolve, reject) => {
+    const shell = resolveTerminalShell(shellHint);
+    const child = spawn(shell.command, [...shell.args, command], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (err) => {
+      reject(err);
+    });
+
+    child.on("close", (code) => {
+      const output = stdout + (stderr ? `\n${stderr}` : "");
+      resolve({ output, exitCode: code ?? 0 });
+    });
+  });
+}
+
 function logCliOutput(prefix, chunk) {
   const text = chunk.toString();
   if (config.dev) {
@@ -350,6 +402,22 @@ app.post("/api/secret/delete", async (req, res) => {
       return;
     }
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({
+      error: err && err.message ? err.message : String(err),
+    });
+  }
+});
+
+app.post("/api/terminal", async (req, res) => {
+  const { command, shell } = req.body || {};
+  if (!command || typeof command !== "string") {
+    res.status(400).json({ error: "command is required" });
+    return;
+  }
+  try {
+    const result = await runTerminalCommand(command, shell);
+    res.json(result);
   } catch (err) {
     res.status(500).json({
       error: err && err.message ? err.message : String(err),

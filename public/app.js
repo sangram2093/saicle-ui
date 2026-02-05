@@ -30,6 +30,14 @@ const secretValue = document.getElementById("secretValue");
 const secretSaveBtn = document.getElementById("secretSaveBtn");
 const secretCancelBtn = document.getElementById("secretCancelBtn");
 const secretList = document.getElementById("secretList");
+const terminalBtn = document.getElementById("terminalBtn");
+const terminalModal = document.getElementById("terminalModal");
+const terminalShell = document.getElementById("terminalShell");
+const terminalOutput = document.getElementById("terminalOutput");
+const terminalCommand = document.getElementById("terminalCommand");
+const terminalRunBtn = document.getElementById("terminalRunBtn");
+const terminalClearBtn = document.getElementById("terminalClearBtn");
+const terminalCloseBtn = document.getElementById("terminalCloseBtn");
 
 let liveState = {
   session: { history: [] },
@@ -45,6 +53,7 @@ const SCROLL_BOTTOM_THRESHOLD = 32;
 let autoScrollEnabled = true;
 let lastRenderKey = "";
 let activeSpeechKey = null;
+let terminalRunning = false;
 
 const SERVICE_FIELDS = {
   servicenow: [
@@ -579,6 +588,109 @@ function closeCredentialsModal() {
   credentialsModal.setAttribute("aria-hidden", "true");
 }
 
+function isWindowsClient() {
+  if (typeof navigator === "undefined") return false;
+  return /Windows/i.test(navigator.userAgent);
+}
+
+function setupTerminalShellOptions() {
+  if (!terminalShell) return;
+  terminalShell.innerHTML = "";
+
+  if (isWindowsClient()) {
+    const powershell = document.createElement("option");
+    powershell.value = "powershell";
+    powershell.textContent = "PowerShell";
+    terminalShell.appendChild(powershell);
+
+    const cmd = document.createElement("option");
+    cmd.value = "cmd";
+    cmd.textContent = "Command Prompt";
+    terminalShell.appendChild(cmd);
+    return;
+  }
+
+  const def = document.createElement("option");
+  def.value = "default";
+  def.textContent = "Default shell";
+  terminalShell.appendChild(def);
+}
+
+function appendTerminalOutput(text, className) {
+  if (!terminalOutput || text === null || text === undefined) return;
+  const lines = String(text).split(/\r?\n/);
+  lines.forEach((line, idx) => {
+    if (line === "" && idx === lines.length - 1) return;
+    const row = document.createElement("div");
+    row.className = `terminal-line${className ? ` ${className}` : ""}`;
+    row.textContent = line === "" ? " " : line;
+    terminalOutput.appendChild(row);
+  });
+
+  const maxLines = 400;
+  while (terminalOutput.children.length > maxLines) {
+    terminalOutput.removeChild(terminalOutput.firstChild);
+  }
+  terminalOutput.scrollTop = terminalOutput.scrollHeight;
+}
+
+function openTerminalModal() {
+  if (!terminalModal) return;
+  setupTerminalShellOptions();
+  terminalModal.classList.add("show");
+  terminalModal.setAttribute("aria-hidden", "false");
+  if (terminalCommand) {
+    terminalCommand.focus();
+  }
+}
+
+function closeTerminalModal() {
+  if (!terminalModal) return;
+  terminalModal.classList.remove("show");
+  terminalModal.setAttribute("aria-hidden", "true");
+}
+
+async function runTerminalCommand() {
+  if (!terminalCommand || !terminalRunBtn) return;
+  if (terminalRunning) return;
+  const command = terminalCommand.value.trim();
+  if (!command) return;
+
+  terminalRunning = true;
+  terminalCommand.value = "";
+  terminalRunBtn.disabled = true;
+  terminalRunBtn.textContent = "Running...";
+
+  appendTerminalOutput(`> ${command}`, "command");
+
+  try {
+    const result = await fetchJson("/api/terminal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        command,
+        shell: terminalShell?.value || "default",
+      }),
+    });
+    if (result.output) {
+      appendTerminalOutput(
+        result.output,
+        result.exitCode === 0 ? "" : "error",
+      );
+    }
+    const exitCode =
+      typeof result.exitCode === "number" ? result.exitCode : 0;
+    appendTerminalOutput(`exit ${exitCode}`, "meta");
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    appendTerminalOutput(message, "error");
+  } finally {
+    terminalRunning = false;
+    terminalRunBtn.disabled = false;
+    terminalRunBtn.textContent = "Run";
+  }
+}
+
 function roleLabel(role) {
   if (role === "assistant" || role === "thinking") return "dbSAIcle";
   if (role === "user") return "You";
@@ -767,7 +879,14 @@ function renderMessages(history, showThinking, pendingPermission) {
   const previousScrollHeight = chatEl.scrollHeight;
   chatEl.innerHTML = "";
 
-  if (!history || history.length === 0) {
+  const lastRenderableIndex = Array.isArray(history)
+    ? history.reduce((lastIndex, item, idx) => {
+        const role = item?.message?.role;
+        return role === "system" ? lastIndex : idx;
+      }, -1)
+    : -1;
+
+  if (!history || history.length === 0 || lastRenderableIndex === -1) {
     const empty = document.createElement("div");
     empty.className = "message assistant";
     empty.innerHTML =
@@ -781,6 +900,7 @@ function renderMessages(history, showThinking, pendingPermission) {
 
   history.forEach((item, index) => {
     const role = item.message?.role || "assistant";
+    if (role === "system") return;
     const msg = document.createElement("div");
     msg.className = `message ${role}`;
 
@@ -803,7 +923,7 @@ function renderMessages(history, showThinking, pendingPermission) {
     const actions = buildMessageActions(
       item,
       index,
-      index === history.length - 1,
+      index === lastRenderableIndex,
     );
     if (actions) {
       msg.appendChild(actions);
@@ -1166,6 +1286,43 @@ if (secretMode) {
 
 if (secretService) {
   secretService.addEventListener("change", refreshSecretFieldOptions);
+}
+
+if (terminalBtn) {
+  terminalBtn.addEventListener("click", openTerminalModal);
+}
+
+if (terminalModal) {
+  terminalModal.addEventListener("click", (event) => {
+    if (event.target === terminalModal) {
+      closeTerminalModal();
+    }
+  });
+}
+
+if (terminalCloseBtn) {
+  terminalCloseBtn.addEventListener("click", closeTerminalModal);
+}
+
+if (terminalClearBtn) {
+  terminalClearBtn.addEventListener("click", () => {
+    if (terminalOutput) {
+      terminalOutput.innerHTML = "";
+    }
+  });
+}
+
+if (terminalRunBtn) {
+  terminalRunBtn.addEventListener("click", runTerminalCommand);
+}
+
+if (terminalCommand) {
+  terminalCommand.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runTerminalCommand();
+    }
+  });
 }
 
 promptEl.addEventListener("keydown", (event) => {
