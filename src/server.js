@@ -3,6 +3,8 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const { spawn } = require("child_process");
+const { WebSocketServer } = require("ws");
+const pty = require("node-pty");
 const open = require("open");
 const { loadConfig } = require("./config");
 
@@ -46,6 +48,32 @@ function ensureVendorAssets() {
           "purify.min.js",
         ),
         dest: path.join(vendorDir, "purify.min.js"),
+      },
+      {
+        src: path.join(__dirname, "..", "node_modules", "xterm", "lib", "xterm.js"),
+        dest: path.join(vendorDir, "xterm.js"),
+      },
+      {
+        src: path.join(
+          __dirname,
+          "..",
+          "node_modules",
+          "xterm",
+          "css",
+          "xterm.css",
+        ),
+        dest: path.join(vendorDir, "xterm.css"),
+      },
+      {
+        src: path.join(
+          __dirname,
+          "..",
+          "node_modules",
+          "xterm-addon-fit",
+          "lib",
+          "xterm-addon-fit.js",
+        ),
+        dest: path.join(vendorDir, "xterm-addon-fit.js"),
       },
     ];
 
@@ -139,6 +167,124 @@ function runTerminalCommand(command, shellHint) {
     child.on("close", (code) => {
       const output = stdout + (stderr ? `\n${stderr}` : "");
       resolve({ output, exitCode: code ?? 0 });
+    });
+  });
+}
+
+function resolvePtyShell(shellHint) {
+  const hint = (shellHint || "").toLowerCase();
+  if (process.platform === "win32") {
+    if (hint === "cmd") {
+      return { command: "cmd.exe", args: [], label: "Command Prompt" };
+    }
+    return {
+      command: "powershell.exe",
+      args: ["-NoLogo", "-NoProfile"],
+      label: "PowerShell",
+    };
+  }
+
+  if (hint === "zsh") {
+    return { command: "/bin/zsh", args: ["-l"], label: "Zsh" };
+  }
+  if (hint === "bash") {
+    return { command: "/bin/bash", args: ["-l"], label: "Bash" };
+  }
+
+  const userShell = process.env.SHELL || "/bin/bash";
+  return { command: userShell, args: ["-l"], label: "Shell" };
+}
+
+function setupTerminalWebSocket(server) {
+  const wss = new WebSocketServer({ server, path: "/api/terminal/ws" });
+
+  wss.on("connection", (ws) => {
+    let ptyProcess = null;
+
+    const sendMessage = (payload) => {
+      if (ws.readyState !== ws.OPEN) return;
+      ws.send(JSON.stringify(payload));
+    };
+
+    ws.on("message", (data) => {
+      let payload = null;
+      try {
+        payload = JSON.parse(data.toString());
+      } catch (_err) {
+        return;
+      }
+
+      if (!payload || typeof payload.type !== "string") return;
+
+      if (payload.type === "init") {
+        if (ptyProcess) return;
+        const cols = Number(payload.cols) || 80;
+        const rows = Number(payload.rows) || 24;
+        const shell = resolvePtyShell(payload.shell);
+        ptyProcess = pty.spawn(shell.command, shell.args, {
+          name: "xterm-256color",
+          cols,
+          rows,
+          cwd: process.cwd(),
+          env: { ...process.env },
+        });
+
+        sendMessage({
+          type: "meta",
+          shell: shell.label || shell.command,
+          cwd: process.cwd(),
+        });
+
+        ptyProcess.onData((chunk) => {
+          sendMessage({ type: "output", data: chunk });
+        });
+
+        ptyProcess.onExit(({ exitCode, signal }) => {
+          sendMessage({ type: "exit", exitCode, signal });
+          try {
+            ws.close();
+          } catch (_err) {
+            // ignore
+          }
+        });
+
+        return;
+      }
+
+      if (payload.type === "input" && ptyProcess) {
+        ptyProcess.write(String(payload.data || ""));
+        return;
+      }
+
+      if (payload.type === "resize" && ptyProcess) {
+        const cols = Number(payload.cols) || 80;
+        const rows = Number(payload.rows) || 24;
+        try {
+          ptyProcess.resize(cols, rows);
+        } catch (_err) {
+          // ignore resize errors
+        }
+        return;
+      }
+
+      if (payload.type === "close") {
+        try {
+          ws.close();
+        } catch (_err) {
+          // ignore
+        }
+      }
+    });
+
+    ws.on("close", () => {
+      if (ptyProcess) {
+        try {
+          ptyProcess.kill();
+        } catch (_err) {
+          // ignore
+        }
+        ptyProcess = null;
+      }
     });
   });
 }
@@ -337,6 +483,10 @@ app.post("/api/delete", async (req, res) => {
   await proxyJson(req, res, "POST", "/delete");
 });
 
+app.post("/api/mode", async (req, res) => {
+  await proxyJson(req, res, "POST", "/mode");
+});
+
 app.get("/api/diff", async (req, res) => {
   await proxyJson(req, res, "GET", "/diff");
 });
@@ -482,6 +632,8 @@ const server = app.listen(config.uiPort, async () => {
     }
   }
 });
+
+setupTerminalWebSocket(server);
 
 function shutdown() {
   stopCli().finally(() => {

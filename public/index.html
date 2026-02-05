@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>dbSAIcle UI</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="vendor/xterm.css" />
   </head>
   <body>
     <div id="app" class="app">
@@ -41,6 +42,7 @@
           </div>
           <div class="topbar-right">
             <span class="status" id="status">Idle</span>
+            <span class="mode-indicator" id="modeIndicator">Chat</span>
             <button class="secondary-btn" id="stopTopBtn" type="button">
               Stop & New
             </button>
@@ -64,9 +66,15 @@
             </div>
           </div>
           <div class="input-toolbar">
-            <button class="mode-btn active" type="button">Chat</button>
-            <button class="mode-btn" type="button">Plan</button>
-            <button class="mode-btn" type="button">Auto</button>
+            <button class="mode-btn active" type="button" data-mode="normal">
+              Chat
+            </button>
+            <button class="mode-btn" type="button" data-mode="plan">
+              Plan
+            </button>
+            <button class="mode-btn" type="button" data-mode="auto">
+              Auto
+            </button>
           </div>
           <textarea
             id="prompt"
@@ -187,7 +195,15 @@
               <span class="field-label">Shell</span>
               <select id="terminalShell" class="field-input"></select>
             </label>
+            <div class="terminal-meta" id="terminalMeta">Connecting...</div>
             <div class="terminal-actions">
+              <button
+                class="secondary-btn"
+                id="terminalReconnectBtn"
+                type="button"
+              >
+                Reconnect
+              </button>
               <button class="secondary-btn" id="terminalClearBtn" type="button">
                 Clear
               </button>
@@ -196,17 +212,9 @@
               </button>
             </div>
           </div>
-          <div id="terminalOutput" class="terminal-output" aria-live="polite"></div>
-          <div class="terminal-input-row">
-            <input
-              id="terminalCommand"
-              class="field-input terminal-input"
-              placeholder="Enter command"
-              autocomplete="off"
-            />
-            <button class="primary-btn" id="terminalRunBtn" type="button">
-              Run
-            </button>
+          <div id="terminalContainer" class="terminal-container"></div>
+          <div class="terminal-hint">
+            Tip: Use this like a normal terminal (supports interactive prompts).
           </div>
         </div>
       </div>
@@ -214,6 +222,8 @@
 
     <script defer src="vendor/marked.min.js"></script>
     <script defer src="vendor/purify.min.js"></script>
+    <script defer src="vendor/xterm.js"></script>
+    <script defer src="vendor/xterm-addon-fit.js"></script>
     <script defer src="app.js"></script>
   </body>
 </html>

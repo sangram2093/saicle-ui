@@ -202,6 +202,17 @@ body {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.mode-indicator {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(14, 99, 156, 0.4);
+  color: var(--text);
+  background: rgba(14, 99, 156, 0.15);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
 .chat {
   flex: 1;
   overflow-y: auto;
@@ -644,6 +655,7 @@ body {
   align-items: flex-end;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .terminal-actions {
@@ -651,47 +663,36 @@ body {
   gap: 8px;
 }
 
-.terminal-output {
+.terminal-meta {
+  font-size: 11px;
+  color: var(--muted);
   flex: 1;
-  min-height: 0;
+  min-width: 160px;
+  text-align: right;
+}
+
+.terminal-container {
+  flex: 1;
+  min-height: 320px;
   background: #111;
   border: 1px solid var(--panel-border);
   border-radius: 10px;
-  padding: 12px;
-  overflow-y: auto;
-  font-family: Consolas, "JetBrains Mono", "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #e6e6e6;
-  white-space: pre-wrap;
+  padding: 8px;
+  overflow: hidden;
 }
 
-.terminal-line {
-  white-space: pre-wrap;
+.terminal-container .xterm {
+  height: 100%;
 }
 
-.terminal-line.command {
-  color: var(--accent);
+.terminal-container .xterm-viewport {
+  border-radius: 6px;
 }
 
-.terminal-line.error {
-  color: var(--error);
-}
-
-.terminal-line.meta {
+.terminal-hint {
+  font-size: 11px;
   color: var(--muted);
-}
-
-.terminal-input-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.terminal-input {
-  flex: 1;
-  font-family: Consolas, "JetBrains Mono", "Courier New", monospace;
-  font-size: 12px;
+  text-align: right;
 }
 
 .secret-list {
