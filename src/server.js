@@ -4,7 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const { spawn } = require("child_process");
 const { WebSocketServer } = require("ws");
-const pty = require("node-pty");
+const pty = require("@homebridge/node-pty-prebuilt-multiarch");
 const open = require("open");
 const { loadConfig } = require("./config");
 
@@ -50,7 +50,15 @@ function ensureVendorAssets() {
         dest: path.join(vendorDir, "purify.min.js"),
       },
       {
-        src: path.join(__dirname, "..", "node_modules", "xterm", "lib", "xterm.js"),
+        src: path.join(
+          __dirname,
+          "..",
+          "node_modules",
+          "@xterm",
+          "xterm",
+          "lib",
+          "xterm.js",
+        ),
         dest: path.join(vendorDir, "xterm.js"),
       },
       {
@@ -58,6 +66,7 @@ function ensureVendorAssets() {
           __dirname,
           "..",
           "node_modules",
+          "@xterm",
           "xterm",
           "css",
           "xterm.css",
@@ -69,16 +78,17 @@ function ensureVendorAssets() {
           __dirname,
           "..",
           "node_modules",
-          "xterm-addon-fit",
+          "@xterm",
+          "addon-fit",
           "lib",
-          "xterm-addon-fit.js",
+          "addon-fit.js",
         ),
         dest: path.join(vendorDir, "xterm-addon-fit.js"),
       },
     ];
 
     assets.forEach((asset) => {
-      if (fs.existsSync(asset.src) && !fs.existsSync(asset.dest)) {
+      if (fs.existsSync(asset.src)) {
         fs.copyFileSync(asset.src, asset.dest);
       }
     });

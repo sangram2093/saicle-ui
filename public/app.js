@@ -646,13 +646,14 @@ function setupTerminalShellOptions() {
 
 function ensureTerminalInstance() {
   if (!terminalContainer || terminalInstance) return;
-  if (!window.Terminal) {
+  const TerminalCtor = window.Terminal || (window.XTerm && window.XTerm.Terminal);
+  if (!TerminalCtor) {
     terminalContainer.textContent =
       "Terminal library not loaded. Please restart the UI.";
     return;
   }
 
-  terminalInstance = new window.Terminal({
+  terminalInstance = new TerminalCtor({
     fontFamily: 'Consolas, "JetBrains Mono", "Courier New", monospace',
     fontSize: 12,
     lineHeight: 1.4,
@@ -664,8 +665,11 @@ function ensureTerminalInstance() {
     scrollback: 2000,
   });
 
-  if (window.FitAddon && window.FitAddon.FitAddon) {
-    terminalFitAddon = new window.FitAddon.FitAddon();
+  const FitAddonCtor = window.FitAddon
+    ? window.FitAddon.FitAddon || window.FitAddon
+    : null;
+  if (FitAddonCtor) {
+    terminalFitAddon = new FitAddonCtor();
     terminalInstance.loadAddon(terminalFitAddon);
   }
 
