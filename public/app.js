@@ -704,6 +704,10 @@ function connectTerminal() {
     }
   }
 
+  if (terminalMeta) {
+    terminalMeta.textContent = "Connecting...";
+  }
+
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const socket = new WebSocket(
     `${protocol}://${window.location.host}/api/terminal/ws`,
@@ -751,11 +755,17 @@ function connectTerminal() {
     }
     if (payload.type === "error" && payload.message) {
       terminalInstance.write(`\r\n[error] ${payload.message}\r\n`);
+      if (terminalMeta) {
+        terminalMeta.textContent = "Terminal error";
+      }
     }
   });
 
   socket.addEventListener("close", () => {
     terminalInstance.write("\r\n[disconnected]\r\n");
+    if (terminalMeta) {
+      terminalMeta.textContent = "Disconnected";
+    }
   });
 }
 

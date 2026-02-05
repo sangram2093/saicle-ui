@@ -171,28 +171,67 @@ function runTerminalCommand(command, shellHint) {
   });
 }
 
-function resolvePtyShell(shellHint) {
+function isExecutable(filePath) {
+  if (!filePath) return false;
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+function resolvePtyShellCandidates(shellHint) {
   const hint = (shellHint || "").toLowerCase();
   if (process.platform === "win32") {
     if (hint === "cmd") {
-      return { command: "cmd.exe", args: [], label: "Command Prompt" };
+      return [{ command: "cmd.exe", args: [], label: "Command Prompt" }];
     }
-    return {
-      command: "powershell.exe",
-      args: ["-NoLogo", "-NoProfile"],
-      label: "PowerShell",
-    };
+    return [
+      {
+        command: "powershell.exe",
+        args: ["-NoLogo", "-NoProfile"],
+        label: "PowerShell",
+      },
+    ];
   }
+
+  const candidates = [];
+  const seen = new Set();
+  const addCandidate = (command, args, label) => {
+    if (!command || seen.has(command)) return;
+    seen.add(command);
+    if (!isExecutable(command)) return;
+    candidates.push({ command, args, label });
+  };
 
   if (hint === "zsh") {
-    return { command: "/bin/zsh", args: ["-l"], label: "Zsh" };
-  }
-  if (hint === "bash") {
-    return { command: "/bin/bash", args: ["-l"], label: "Bash" };
+    addCandidate("/bin/zsh", ["-l"], "Zsh");
+  } else if (hint === "bash") {
+    addCandidate("/bin/bash", ["-l"], "Bash");
+  } else if (hint === "sh") {
+    addCandidate("/bin/sh", ["-l"], "Shell");
+  } else if (shellHint && shellHint.startsWith("/")) {
+    addCandidate(shellHint, ["-l"], path.basename(shellHint));
   }
 
-  const userShell = process.env.SHELL || "/bin/bash";
-  return { command: userShell, args: ["-l"], label: "Shell" };
+  if (process.env.SHELL) {
+    addCandidate(
+      process.env.SHELL,
+      ["-l"],
+      path.basename(process.env.SHELL),
+    );
+  }
+
+  addCandidate("/bin/zsh", ["-l"], "Zsh");
+  addCandidate("/bin/bash", ["-l"], "Bash");
+  addCandidate("/bin/sh", ["-l"], "Shell");
+
+  if (candidates.length === 0) {
+    return [{ command: "/bin/sh", args: ["-l"], label: "Shell" }];
+  }
+
+  return candidates;
 }
 
 function setupTerminalWebSocket(server) {
@@ -220,20 +259,51 @@ function setupTerminalWebSocket(server) {
         if (ptyProcess) return;
         const cols = Number(payload.cols) || 80;
         const rows = Number(payload.rows) || 24;
-        const shell = resolvePtyShell(payload.shell);
-        ptyProcess = pty.spawn(shell.command, shell.args, {
-          name: "xterm-256color",
-          cols,
-          rows,
-          cwd: process.cwd(),
-          env: { ...process.env },
-        });
+        const shellCandidates = resolvePtyShellCandidates(payload.shell);
+        let spawnError = null;
 
-        sendMessage({
-          type: "meta",
-          shell: shell.label || shell.command,
-          cwd: process.cwd(),
-        });
+        for (const shell of shellCandidates) {
+          try {
+            ptyProcess = pty.spawn(shell.command, shell.args, {
+              name: "xterm-256color",
+              cols,
+              rows,
+              cwd: process.cwd(),
+              env: { ...process.env },
+            });
+
+            sendMessage({
+              type: "meta",
+              shell: shell.label || shell.command,
+              cwd: process.cwd(),
+            });
+            break;
+          } catch (err) {
+            spawnError = err;
+            if (config.dev) {
+              console.warn(
+                `[terminal] spawn failed for ${shell.command}: ${err?.message || err}`,
+              );
+            }
+          }
+        }
+
+        if (!ptyProcess) {
+          const message =
+            spawnError && spawnError.message
+              ? spawnError.message
+              : "Unable to start terminal session.";
+          sendMessage({
+            type: "error",
+            message: `Failed to start terminal (${message}).`,
+          });
+          try {
+            ws.close();
+          } catch (_err) {
+            // ignore
+          }
+          return;
+        }
 
         ptyProcess.onData((chunk) => {
           sendMessage({ type: "output", data: chunk });
