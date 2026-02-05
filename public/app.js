@@ -14,10 +14,10 @@ const restartBtn = document.getElementById("restartBtn");
 const retryBtn = document.getElementById("retryBtn");
 const credentialsBtn = document.getElementById("credentialsBtn");
 
-const permissionModal = document.getElementById("permissionModal");
-const permissionBody = document.getElementById("permissionBody");
-const allowBtn = document.getElementById("allowBtn");
-const denyBtn = document.getElementById("denyBtn");
+const permissionBar = document.getElementById("permissionBar");
+const permissionLabel = document.getElementById("permissionLabel");
+const permissionAllowBtn = document.getElementById("permissionAllowBtn");
+const permissionDenyBtn = document.getElementById("permissionDenyBtn");
 
 const credentialsModal = document.getElementById("credentialsModal");
 const secretMode = document.getElementById("secretMode");
@@ -31,12 +31,13 @@ const secretSaveBtn = document.getElementById("secretSaveBtn");
 const secretCancelBtn = document.getElementById("secretCancelBtn");
 const secretList = document.getElementById("secretList");
 const terminalBtn = document.getElementById("terminalBtn");
-const terminalModal = document.getElementById("terminalModal");
+const terminalPanel = document.getElementById("terminalPanel");
 const terminalShell = document.getElementById("terminalShell");
 const terminalContainer = document.getElementById("terminalContainer");
 const terminalReconnectBtn = document.getElementById("terminalReconnectBtn");
 const terminalClearBtn = document.getElementById("terminalClearBtn");
 const terminalCloseBtn = document.getElementById("terminalCloseBtn");
+const terminalPopoutBtn = document.getElementById("terminalPopoutBtn");
 const terminalMeta = document.getElementById("terminalMeta");
 const modeIndicator = document.getElementById("modeIndicator");
 const modeButtons = document.querySelectorAll(".mode-btn");
@@ -58,7 +59,20 @@ let activeSpeechKey = null;
 let terminalInstance = null;
 let terminalSocket = null;
 let terminalFitAddon = null;
+let terminalPanelVisible = false;
+let terminalConnected = false;
 let currentMode = "normal";
+
+const TERMINAL_TOOL_NAMES = new Set([
+  "run_terminal_command",
+  "runterminalcommand",
+  "terminal",
+]);
+
+const terminalToolLog = {
+  seen: new Set(),
+  outputCache: new Map(),
+};
 
 const SERVICE_FIELDS = {
   servicenow: [
@@ -123,6 +137,57 @@ function updateProcessingUI(isProcessing) {
   }
   if (!isProcessing) {
     setHangBanner(false);
+  }
+}
+
+function updatePermissionBar(pending) {
+  if (!permissionBar || !permissionLabel) return;
+
+  if (!pending) {
+    permissionBar.classList.remove("show");
+    permissionBar.setAttribute("aria-hidden", "true");
+    permissionLabel.textContent = "";
+    return;
+  }
+
+  const toolName = pending.toolName || "tool";
+  const summary =
+    pending.toolArgs && typeof pending.toolArgs.command === "string"
+      ? pending.toolArgs.command
+      : "";
+  const label = summary
+    ? `Allow ${toolName}: ${summary}`
+    : `Allow ${toolName}`;
+
+  permissionLabel.textContent = label;
+  permissionLabel.title = JSON.stringify(pending.toolArgs || {}, null, 2);
+  permissionBar.classList.add("show");
+  permissionBar.setAttribute("aria-hidden", "false");
+
+  if (isTerminalToolCall({ toolCall: { function: { name: toolName } } })) {
+    openTerminalPanel({ focus: false });
+  }
+
+  if (permissionAllowBtn) {
+    permissionAllowBtn.onclick = async () => {
+      await fetchJson("/api/permission", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestId: pending.requestId, approved: true }),
+      });
+      permissionBar.classList.remove("show");
+    };
+  }
+
+  if (permissionDenyBtn) {
+    permissionDenyBtn.onclick = async () => {
+      await fetchJson("/api/permission", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestId: pending.requestId, approved: false }),
+      });
+      permissionBar.classList.remove("show");
+    };
   }
 }
 
@@ -253,6 +318,137 @@ function normalizeToolOutput(output) {
   }
   if (output && typeof output.content === "string") return output.content;
   return stringifyValue(output);
+}
+
+function normalizeToolArgs(rawArgs) {
+  if (rawArgs === undefined || rawArgs === null) return "";
+  if (typeof rawArgs === "object") {
+    return JSON.stringify(rawArgs, null, 2);
+  }
+  if (typeof rawArgs !== "string") {
+    return stringifyValue(rawArgs);
+  }
+  const trimmed = rawArgs.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed);
+    return JSON.stringify(parsed, null, 2);
+  } catch (_err) {
+    return trimmed;
+  }
+}
+
+function getToolCallName(toolCallState) {
+  return (
+    toolCallState?.toolCall?.function?.name ||
+    toolCallState?.toolCall?.name ||
+    toolCallState?.name ||
+    ""
+  );
+}
+
+function isTerminalToolCall(toolCallState) {
+  const rawName = getToolCallName(toolCallState);
+  const normalized = String(rawName).toLowerCase();
+  const compact = normalized.replace(/[^a-z0-9]/g, "");
+  return (
+    TERMINAL_TOOL_NAMES.has(normalized) ||
+    TERMINAL_TOOL_NAMES.has(compact) ||
+    compact.includes("terminalcommand") ||
+    normalized.includes("terminal")
+  );
+}
+
+function extractTerminalCommand(toolCallState) {
+  const rawArgs = toolCallState?.toolCall?.function?.arguments;
+  if (rawArgs && typeof rawArgs === "object" && typeof rawArgs.command === "string") {
+    return rawArgs.command;
+  }
+  if (typeof rawArgs === "string") {
+    try {
+      const parsed = JSON.parse(rawArgs);
+      if (parsed && typeof parsed.command === "string") {
+        return parsed.command;
+      }
+    } catch (_err) {
+      return rawArgs.trim();
+    }
+  }
+  return "";
+}
+
+function getToolCallKey(toolCallState, index) {
+  return (
+    toolCallState?.toolCall?.id ||
+    toolCallState?.toolCallId ||
+    toolCallState?.id ||
+    `${getToolCallName(toolCallState)}:${index}:${String(
+      toolCallState?.toolCall?.function?.arguments || "",
+    )}`
+  );
+}
+
+function writeTerminalOutput(text) {
+  if (!terminalInstance || !text) return;
+  const normalized = text.replace(/\r?\n/g, "\r\n");
+  terminalInstance.write(normalized);
+}
+
+function mirrorTerminalToolCall(toolCallState, index) {
+  if (!isTerminalToolCall(toolCallState)) return;
+  const key = getToolCallKey(toolCallState, index);
+  if (!key) return;
+
+  const command = extractTerminalCommand(toolCallState);
+  const output = normalizeToolOutput(toolCallState?.output);
+  const previousOutput = terminalToolLog.outputCache.get(key) || "";
+  const needsOutputUpdate = output && output !== previousOutput;
+  const isNewCall = !terminalToolLog.seen.has(key);
+
+  if (!isNewCall && !needsOutputUpdate) {
+    return;
+  }
+
+  if (!terminalPanelVisible) {
+    openTerminalPanel({ focus: false });
+  } else {
+    ensureTerminalInstance();
+  }
+
+  if (isNewCall) {
+    const toolName = getToolCallName(toolCallState) || "terminal";
+    writeTerminalOutput(`\r\n[dbSAIcle tool: ${toolName}]`);
+    if (command) {
+      writeTerminalOutput(`\r\n$ ${command}\r\n`);
+    } else {
+      writeTerminalOutput("\r\n");
+    }
+    terminalToolLog.seen.add(key);
+  }
+
+  if (needsOutputUpdate) {
+    const delta = output.startsWith(previousOutput)
+      ? output.slice(previousOutput.length)
+      : `\r\n${output}`;
+    writeTerminalOutput(delta);
+    terminalToolLog.outputCache.set(key, output);
+  }
+}
+
+function mirrorTerminalToolCalls(history) {
+  if (!Array.isArray(history)) return;
+  history.forEach((item) => {
+    const toolCalls = item?.toolCallStates;
+    if (!Array.isArray(toolCalls)) return;
+    toolCalls.forEach((toolCallState, index) => {
+      mirrorTerminalToolCall(toolCallState, index);
+    });
+  });
+}
+
+function resetTerminalToolLog() {
+  terminalToolLog.seen.clear();
+  terminalToolLog.outputCache.clear();
 }
 
 function escapeHtml(text) {
@@ -623,6 +819,7 @@ function isWindowsClient() {
 
 function setupTerminalShellOptions() {
   if (!terminalShell) return;
+  if (terminalShell.options.length) return;
   terminalShell.innerHTML = "";
 
   if (isWindowsClient()) {
@@ -642,6 +839,16 @@ function setupTerminalShellOptions() {
   def.value = "default";
   def.textContent = "Default shell";
   terminalShell.appendChild(def);
+
+  const zsh = document.createElement("option");
+  zsh.value = "zsh";
+  zsh.textContent = "Zsh";
+  terminalShell.appendChild(zsh);
+
+  const bash = document.createElement("option");
+  bash.value = "bash";
+  bash.textContent = "Bash";
+  terminalShell.appendChild(bash);
 }
 
 function ensureTerminalInstance() {
@@ -717,8 +924,10 @@ function connectTerminal() {
     `${protocol}://${window.location.host}/api/terminal/ws`,
   );
   terminalSocket = socket;
+  terminalConnected = false;
 
   socket.addEventListener("open", () => {
+    terminalConnected = true;
     if (terminalFitAddon) {
       terminalFitAddon.fit();
     }
@@ -766,6 +975,7 @@ function connectTerminal() {
   });
 
   socket.addEventListener("close", () => {
+    terminalConnected = false;
     terminalInstance.write("\r\n[disconnected]\r\n");
     if (terminalMeta) {
       terminalMeta.textContent = "Disconnected";
@@ -773,30 +983,51 @@ function connectTerminal() {
   });
 }
 
-function openTerminalModal() {
-  if (!terminalModal) return;
-  setupTerminalShellOptions();
-  terminalModal.classList.add("show");
-  terminalModal.setAttribute("aria-hidden", "false");
-  if (terminalMeta) {
-    terminalMeta.textContent = "Connecting...";
+function setTerminalPanelVisible(visible, options = {}) {
+  if (!terminalPanel) return;
+  terminalPanelVisible = visible;
+  terminalPanel.classList.toggle("show", visible);
+  terminalPanel.setAttribute("aria-hidden", visible ? "false" : "true");
+
+  if (!visible) {
+    return;
   }
+
+  setupTerminalShellOptions();
   ensureTerminalInstance();
-  connectTerminal();
+
+  if (terminalFitAddon) {
+    terminalFitAddon.fit();
+  }
+
+  if (!terminalSocket || terminalSocket.readyState !== WebSocket.OPEN) {
+    if (terminalMeta) {
+      terminalMeta.textContent = "Connecting...";
+    }
+    connectTerminal();
+  }
+
+  if (options.focus && terminalInstance) {
+    terminalInstance.focus();
+  }
 }
 
-function closeTerminalModal() {
-  if (!terminalModal) return;
-  terminalModal.classList.remove("show");
-  terminalModal.setAttribute("aria-hidden", "true");
-  if (terminalSocket) {
-    try {
-      terminalSocket.close();
-    } catch (_err) {
-      // ignore
-    }
-    terminalSocket = null;
-  }
+function openTerminalPanel(options) {
+  setTerminalPanelVisible(true, options);
+}
+
+function closeTerminalPanel() {
+  setTerminalPanelVisible(false);
+}
+
+function toggleTerminalPanel() {
+  setTerminalPanelVisible(!terminalPanelVisible, { focus: true });
+}
+
+function openTerminalWindow() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("terminal", "1");
+  window.open(url.toString(), "_blank", "noopener");
 }
 
 function roleLabel(role) {
@@ -953,24 +1184,34 @@ function renderToolCalls(toolCallStates, container) {
     name.textContent = tc.toolCall?.function?.name || "tool";
 
     const status = document.createElement("span");
-    status.className = `tool-call-status ${tc.status || ""}`;
+    const statusValue = String(tc.status || "").toLowerCase();
+    status.className = `tool-call-status ${statusValue}`;
     status.textContent = tc.status || "";
 
     title.appendChild(name);
     title.appendChild(status);
 
     const args = document.createElement("div");
-    const argText = tc.toolCall?.function?.arguments || "{}";
-    args.textContent = `Args: ${argText}`;
+    args.className = "tool-call-section tool-call-args";
+    const argText = normalizeToolArgs(tc.toolCall?.function?.arguments);
+    if (argText) {
+      args.innerHTML = `<div class="tool-call-label">Args</div><pre><code class="language-json">${escapeHtml(
+        argText,
+      )}</code></pre>`;
+    }
 
     card.appendChild(title);
-    card.appendChild(args);
+    if (argText) {
+      card.appendChild(args);
+    }
 
     const outputText = normalizeToolOutput(tc.output);
     if (outputText) {
       const output = document.createElement("div");
-      output.className = "tool-call-output";
-      output.innerHTML = renderRichText(outputText);
+      output.className = "tool-call-section tool-call-output";
+      output.innerHTML = `<div class="tool-call-label">Output</div>${renderRichText(
+        outputText,
+      )}`;
       hydratePreviews(output);
       card.appendChild(output);
     }
@@ -1040,9 +1281,7 @@ function renderMessages(history, showThinking, pendingPermission) {
     chatEl.appendChild(msg);
   });
 
-  if (pendingPermission) {
-    appendPermissionCard(pendingPermission);
-  } else if (showThinking) {
+  if (showThinking && !pendingPermission) {
     appendThinkingMessage();
   }
 
@@ -1068,62 +1307,6 @@ function appendThinkingMessage() {
 
   msg.appendChild(roleEl);
   msg.appendChild(content);
-
-  chatEl.appendChild(msg);
-}
-
-function appendPermissionCard(pending) {
-  const msg = document.createElement("div");
-  msg.className = "permission-card message assistant";
-
-  const roleEl = document.createElement("div");
-  roleEl.className = "message-role";
-  roleEl.textContent = "dbSAIcle";
-
-  const content = document.createElement("div");
-  content.className = "message-content";
-  content.innerHTML = renderRichText(
-    `Tool requires permission: ${pending.toolName}\n\nArgs:\n${JSON.stringify(
-      pending.toolArgs,
-      null,
-      2,
-    )}`,
-  );
-  hydratePreviews(content);
-
-  const actions = document.createElement("div");
-  actions.className = "permission-actions";
-
-  const deny = document.createElement("button");
-  deny.className = "secondary-btn";
-  deny.type = "button";
-  deny.textContent = "Deny";
-  deny.onclick = async () => {
-    await fetchJson("/api/permission", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId: pending.requestId, approved: false }),
-    });
-  };
-
-  const allow = document.createElement("button");
-  allow.className = "primary-btn";
-  allow.type = "button";
-  allow.textContent = "Allow";
-  allow.onclick = async () => {
-    await fetchJson("/api/permission", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId: pending.requestId, approved: true }),
-    });
-  };
-
-  actions.appendChild(deny);
-  actions.appendChild(allow);
-
-  msg.appendChild(roleEl);
-  msg.appendChild(content);
-  msg.appendChild(actions);
 
   chatEl.appendChild(msg);
 }
@@ -1169,6 +1352,7 @@ async function updateState() {
         renderMessages(history, state.isProcessing, pending);
         lastRenderKey = renderKey;
       }
+      mirrorTerminalToolCalls(history);
       if (pending) {
         setStatus("Waiting for approval", true);
       } else {
@@ -1180,7 +1364,7 @@ async function updateState() {
       if (state.mode) {
         setModeUI(state.mode);
       }
-      handlePermission(pending);
+      updatePermissionBar(pending);
       updateProcessingUI(state.isProcessing);
 
       if (state.isProcessing && processingStartAt && !pending) {
@@ -1200,6 +1384,7 @@ async function updateState() {
       renderMessages(liveState.session?.history || [], false, null);
     }
     updateProcessingUI(false);
+    updatePermissionBar(null);
     setHangBanner(
       true,
       "Backend disconnected. Please restart the session.",
@@ -1220,41 +1405,6 @@ async function startPolling() {
     setTimeout(loop, delay);
   };
   loop();
-}
-
-function handlePermission(pending) {
-  if (!pending) {
-    permissionModal.classList.remove("show");
-    permissionModal.setAttribute("aria-hidden", "true");
-    return;
-  }
-
-  permissionBody.textContent = `Tool: ${pending.toolName}\nArgs: ${JSON.stringify(
-    pending.toolArgs,
-    null,
-    2,
-  )}`;
-
-  permissionModal.classList.add("show");
-  permissionModal.setAttribute("aria-hidden", "false");
-
-  allowBtn.onclick = async () => {
-    await fetchJson("/api/permission", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId: pending.requestId, approved: true }),
-    });
-    permissionModal.classList.remove("show");
-  };
-
-  denyBtn.onclick = async () => {
-    await fetchJson("/api/permission", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId: pending.requestId, approved: false }),
-    });
-    permissionModal.classList.remove("show");
-  };
 }
 
 async function sendMessage(messageOverride) {
@@ -1324,6 +1474,7 @@ async function viewSession(sessionId, title) {
     sendBtn.disabled = true;
     promptEl.disabled = true;
     updateProcessingUI(false);
+    updatePermissionBar(null);
   } catch (_err) {
     viewingSession = null;
   }
@@ -1336,11 +1487,13 @@ function setLiveSessionView() {
   sendBtn.disabled = false;
   promptEl.disabled = false;
   updateProcessingUI(liveState.isProcessing);
+  updatePermissionBar(liveState.pendingPermission);
   startPolling();
 }
 
 async function restartSession() {
   setStatus("Restarting", true);
+  resetTerminalToolLog();
   await fetchJson("/api/new-session", { method: "POST" });
   setLiveSessionView();
   await updateState();
@@ -1400,19 +1553,11 @@ if (secretService) {
 }
 
 if (terminalBtn) {
-  terminalBtn.addEventListener("click", openTerminalModal);
-}
-
-if (terminalModal) {
-  terminalModal.addEventListener("click", (event) => {
-    if (event.target === terminalModal) {
-      closeTerminalModal();
-    }
-  });
+  terminalBtn.addEventListener("click", toggleTerminalPanel);
 }
 
 if (terminalCloseBtn) {
-  terminalCloseBtn.addEventListener("click", closeTerminalModal);
+  terminalCloseBtn.addEventListener("click", closeTerminalPanel);
 }
 
 if (terminalClearBtn) {
@@ -1428,8 +1573,16 @@ if (terminalReconnectBtn) {
   terminalReconnectBtn.addEventListener("click", connectTerminal);
 }
 
+if (terminalPopoutBtn) {
+  terminalPopoutBtn.addEventListener("click", openTerminalWindow);
+}
+
 if (terminalShell) {
-  terminalShell.addEventListener("change", connectTerminal);
+  terminalShell.addEventListener("change", () => {
+    if (terminalPanelVisible) {
+      connectTerminal();
+    }
+  });
 }
 
 if (modeButtons && modeButtons.length) {
@@ -1476,8 +1629,12 @@ chatSubEl.addEventListener("click", () => {
   }
   refreshSecretFieldOptions();
   toggleCredentialsMode();
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("terminal") === "1") {
+    openTerminalPanel({ focus: true });
+  }
   window.addEventListener("resize", () => {
-    if (terminalFitAddon) {
+    if (terminalFitAddon && terminalPanelVisible) {
       terminalFitAddon.fit();
     }
   });
