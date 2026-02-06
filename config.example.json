@@ -1,8 +1,10 @@
 {
-  "cliPath": "C:\\path\\to\\cn.js",
-  "cliConfigPath": "C:\\Users\\<user>\\.dbsaicle\\config.yaml",
+  "cliPath": "cli/dist/cn.js",
+  "cliConfigPath": "config/config.yaml",
+  "cliNodePath": "",
   "uiPort": 4173,
   "cliPort": 8000,
   "cliTimeoutSeconds": 3600,
-  "cliExtraArgs": []
+  "cliExtraArgs": [],
+  "bundleRoot": ""
 }

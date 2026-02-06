@@ -5,12 +5,12 @@
   "type": "commonjs",
   "main": "src/server.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js --dev",
-    "build:pkg": "pkg . --targets node18-win-x64 --output dist/saicle-ui.exe"
+    "bundle:node22": "node scripts/build-node22-bundle.js"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.12.0",
@@ -22,9 +22,7 @@
     "open": "^11.0.0",
     "ws": "^8.18.0"
   },
-  "pkg": {
-    "assets": [
-      "public/**/*"
-    ]
+  "devDependencies": {
+    "esbuild": "^0.25.1"
   }
 }

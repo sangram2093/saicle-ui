@@ -5,7 +5,6 @@ const os = require("os");
 const { spawn } = require("child_process");
 const { WebSocketServer } = require("ws");
 const pty = require("@homebridge/node-pty-prebuilt-multiarch");
-const open = require("open");
 const { loadConfig } = require("./config");
 
 const config = loadConfig();
@@ -18,7 +17,202 @@ let cliProcess = null;
 let cliReady = false;
 let expectCliExit = false;
 let restartTimer = null;
-const publicDir = path.join(__dirname, "..", "public");
+let openBrowser = null;
+const terminalSessions = new Map();
+let activeTerminalSessionId = null;
+const terminalSessionWaiters = [];
+const terminalRunQueue = [];
+let terminalRunActive = false;
+const TERMINAL_RUN_TIMEOUT_MS = 30000;
+
+function resolvePublicDir() {
+  const localPublic = path.join(__dirname, "public");
+  if (fs.existsSync(localPublic)) return localPublic;
+  return path.join(__dirname, "..", "public");
+}
+
+const publicDir = resolvePublicDir();
+
+async function openUrl(url) {
+  if (!openBrowser) {
+    const mod = await import("open");
+    openBrowser = mod.default || mod;
+  }
+  return openBrowser(url);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripAnsi(value) {
+  if (!value) return "";
+  return value
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/\x1b\][^\u0007]*(\u0007|\x1b\\)/g, "")
+    .replace(/\r/g, "");
+}
+
+function getActiveTerminalSession() {
+  if (activeTerminalSessionId && terminalSessions.has(activeTerminalSessionId)) {
+    return terminalSessions.get(activeTerminalSessionId);
+  }
+  return null;
+}
+
+function waitForTerminalSession(timeoutMs = 2500) {
+  const existing = getActiveTerminalSession();
+  if (existing && existing.ptyProcess) return Promise.resolve(existing);
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      resolve(null);
+    }, timeoutMs);
+    terminalSessionWaiters.push({ resolve, timer });
+  });
+}
+
+function notifyTerminalSessionWaiters(session) {
+  while (terminalSessionWaiters.length > 0) {
+    const waiter = terminalSessionWaiters.shift();
+    clearTimeout(waiter.timer);
+    waiter.resolve(session);
+  }
+}
+
+function buildTerminalCommand(command, shellHint, markerPrefix) {
+  const trimmed = String(command || "").trim();
+  if (!trimmed) {
+    return `echo ${markerPrefix}0__`;
+  }
+  if (process.platform === "win32") {
+    if (String(shellHint || "").toLowerCase() === "cmd") {
+      return `${trimmed} & echo ${markerPrefix}%ERRORLEVEL%__`;
+    }
+    return `${trimmed}; $code = $LASTEXITCODE; Write-Output \"${markerPrefix}$code__\"`;
+  }
+  return `${trimmed}; echo ${markerPrefix}$?__`;
+}
+
+function finalizeTerminalRun(session, run, rawOutput, exitCode) {
+  const cleaned = stripAnsi(rawOutput);
+  const lines = cleaned.split("\n");
+  let output = cleaned;
+  if (lines.length > 5000) {
+    output = lines.slice(0, 5000).join("\n");
+    output += `\n\n[Output truncated to first 5000 lines of ${lines.length} total]`;
+  }
+  clearTimeout(run.timeoutId);
+  session.activeRun = null;
+  run.resolve({ output, exitCode });
+}
+
+function handleTerminalRunOutput(session, chunk) {
+  if (!session || !session.activeRun) return;
+  const run = session.activeRun;
+  run.output += chunk;
+  const match = run.output.match(run.markerRegex);
+  if (!match) return;
+  const markerIndex = run.output.search(run.markerRegex);
+  const beforeMarker =
+    markerIndex >= 0 ? run.output.slice(0, markerIndex) : run.output;
+  const exitCode = Number.parseInt(match[1] || "0", 10);
+  finalizeTerminalRun(
+    session,
+    run,
+    beforeMarker,
+    Number.isNaN(exitCode) ? 0 : exitCode,
+  );
+}
+
+function failActiveTerminalRun(session, message) {
+  if (!session || !session.activeRun) return;
+  const run = session.activeRun;
+  session.activeRun = null;
+  clearTimeout(run.timeoutId);
+  run.reject(new Error(message || "Terminal session ended"));
+}
+
+async function runTerminalCommandInSession(command, shellHint) {
+  const session = await waitForTerminalSession();
+  if (!session || !session.ptyProcess) {
+    return runTerminalCommand(command, shellHint);
+  }
+
+  return new Promise((resolve, reject) => {
+    const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const markerPrefix = `__DBSAICLE_DONE_${runId}__`;
+    const markerRegex = new RegExp(
+      `${escapeRegExp(markerPrefix)}(-?\\d+)__`,
+    );
+    const shellType = session.shellHint || shellHint || "default";
+    const wrappedCommand = buildTerminalCommand(
+      command,
+      shellType,
+      markerPrefix,
+    );
+
+    const run = {
+      id: runId,
+      markerPrefix,
+      markerRegex,
+      output: "",
+      resolve,
+      reject,
+      timeoutId: null,
+    };
+
+    run.timeoutId = setTimeout(() => {
+      if (session.activeRun !== run) return;
+      try {
+        session.ptyProcess.write("\x03");
+      } catch (_err) {
+        // ignore
+      }
+      const timeoutMessage = `${run.output}\n\n[Command timed out after ${Math.floor(
+        TERMINAL_RUN_TIMEOUT_MS / 1000,
+      )} seconds of no output]`;
+      finalizeTerminalRun(session, run, timeoutMessage, 124);
+    }, TERMINAL_RUN_TIMEOUT_MS);
+
+    session.activeRun = run;
+    try {
+      session.ptyProcess.write(`${wrappedCommand}\r\n`);
+    } catch (err) {
+      clearTimeout(run.timeoutId);
+      session.activeRun = null;
+      reject(err);
+    }
+  });
+}
+
+async function enqueueTerminalRun(command, shellHint) {
+  return new Promise((resolve, reject) => {
+    terminalRunQueue.push({ command, shellHint, resolve, reject });
+    processTerminalRunQueue();
+  });
+}
+
+async function processTerminalRunQueue() {
+  if (terminalRunActive) return;
+  const next = terminalRunQueue.shift();
+  if (!next) return;
+  terminalRunActive = true;
+  try {
+    const result = await runTerminalCommandInSession(
+      next.command,
+      next.shellHint,
+    );
+    next.resolve(result);
+  } catch (err) {
+    next.reject(err);
+  } finally {
+    terminalRunActive = false;
+    if (terminalRunQueue.length > 0) {
+      processTerminalRunQueue();
+    }
+  }
+}
 
 function ensureVendorAssets() {
   try {
@@ -27,57 +221,29 @@ function ensureVendorAssets() {
       fs.mkdirSync(vendorDir, { recursive: true });
     }
 
+    const moduleRoot = fs.existsSync(path.join(__dirname, "node_modules"))
+      ? path.join(__dirname, "node_modules")
+      : path.join(__dirname, "..", "node_modules");
     const assets = [
       {
-        src: path.join(
-          __dirname,
-          "..",
-          "node_modules",
-          "marked",
-          "marked.min.js",
-        ),
+        src: path.join(moduleRoot, "marked", "marked.min.js"),
         dest: path.join(vendorDir, "marked.min.js"),
       },
       {
-        src: path.join(
-          __dirname,
-          "..",
-          "node_modules",
-          "dompurify",
-          "dist",
-          "purify.min.js",
-        ),
+        src: path.join(moduleRoot, "dompurify", "dist", "purify.min.js"),
         dest: path.join(vendorDir, "purify.min.js"),
       },
       {
-        src: path.join(
-          __dirname,
-          "..",
-          "node_modules",
-          "@xterm",
-          "xterm",
-          "lib",
-          "xterm.js",
-        ),
+        src: path.join(moduleRoot, "@xterm", "xterm", "lib", "xterm.js"),
         dest: path.join(vendorDir, "xterm.js"),
       },
       {
-        src: path.join(
-          __dirname,
-          "..",
-          "node_modules",
-          "@xterm",
-          "xterm",
-          "css",
-          "xterm.css",
-        ),
+        src: path.join(moduleRoot, "@xterm", "xterm", "css", "xterm.css"),
         dest: path.join(vendorDir, "xterm.css"),
       },
       {
         src: path.join(
-          __dirname,
-          "..",
-          "node_modules",
+          moduleRoot,
           "@xterm",
           "addon-fit",
           "lib",
@@ -100,7 +266,9 @@ function ensureVendorAssets() {
 function buildCliCommand(cliPath) {
   const ext = path.extname(cliPath).toLowerCase();
   if (ext === ".js" || ext === ".mjs" || ext === ".cjs") {
-    return { command: process.execPath, args: [cliPath] };
+    const nodePath =
+      config.cliNodePath || (process.pkg ? "node" : process.execPath);
+    return { command: nodePath, args: [cliPath] };
   }
   return { command: cliPath, args: [] };
 }
@@ -249,6 +417,8 @@ function setupTerminalWebSocket(server) {
 
   wss.on("connection", (ws) => {
     let ptyProcess = null;
+    const sessionId = `term_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let session = null;
 
     const sendMessage = (payload) => {
       if (ws.readyState !== ws.OPEN) return;
@@ -315,12 +485,28 @@ function setupTerminalWebSocket(server) {
           return;
         }
 
+        session = {
+          id: sessionId,
+          ws,
+          ptyProcess,
+          shellHint: payload.shell || "default",
+          activeRun: null,
+        };
+        terminalSessions.set(sessionId, session);
+        activeTerminalSessionId = sessionId;
+        notifyTerminalSessionWaiters(session);
+
         ptyProcess.onData((chunk) => {
           sendMessage({ type: "output", data: chunk });
+          handleTerminalRunOutput(session, chunk);
         });
 
         ptyProcess.onExit(({ exitCode, signal }) => {
           sendMessage({ type: "exit", exitCode, signal });
+          failActiveTerminalRun(
+            session,
+            "Terminal session exited while command was running.",
+          );
           try {
             ws.close();
           } catch (_err) {
@@ -364,6 +550,14 @@ function setupTerminalWebSocket(server) {
           // ignore
         }
         ptyProcess = null;
+      }
+      if (session) {
+        failActiveTerminalRun(session, "Terminal session closed.");
+        terminalSessions.delete(session.id);
+        if (activeTerminalSessionId === session.id) {
+          activeTerminalSessionId = null;
+        }
+        session = null;
       }
     });
   });
@@ -415,7 +609,10 @@ function startCli() {
 
   cliProcess = spawn(command, cliArgs, {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      SAICLE_TERMINAL_PROXY_URL: `http://127.0.0.1:${config.uiPort}/api/terminal`,
+    },
   });
 
   cliProcess.stdout.on("data", (chunk) => logCliOutput("cli", chunk));
@@ -646,7 +843,7 @@ app.post("/api/terminal", async (req, res) => {
     return;
   }
   try {
-    const result = await runTerminalCommand(command, shell);
+    const result = await enqueueTerminalRun(command, shell);
     res.json(result);
   } catch (err) {
     res.status(500).json({
@@ -706,7 +903,7 @@ const server = app.listen(config.uiPort, async () => {
 
   if (config.autoOpen && !config.dev) {
     try {
-      await open(url);
+      await openUrl(url);
     } catch (_err) {
       // ignore
     }

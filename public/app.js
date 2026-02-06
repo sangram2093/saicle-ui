@@ -67,6 +67,7 @@ const TERMINAL_TOOL_NAMES = new Set([
   "run_terminal_command",
   "runterminalcommand",
   "terminal",
+  "bash",
 ]);
 
 const terminalToolLog = {
@@ -404,6 +405,7 @@ function mirrorTerminalToolCall(toolCallState, index) {
   const previousOutput = terminalToolLog.outputCache.get(key) || "";
   const needsOutputUpdate = output && output !== previousOutput;
   const isNewCall = !terminalToolLog.seen.has(key);
+  const shouldMirrorOutput = !terminalConnected;
 
   if (!isNewCall && !needsOutputUpdate) {
     return;
@@ -415,7 +417,7 @@ function mirrorTerminalToolCall(toolCallState, index) {
     ensureTerminalInstance();
   }
 
-  if (isNewCall) {
+  if (isNewCall && shouldMirrorOutput) {
     const toolName = getToolCallName(toolCallState) || "terminal";
     writeTerminalOutput(`\r\n[dbSAIcle tool: ${toolName}]`);
     if (command) {
@@ -424,13 +426,17 @@ function mirrorTerminalToolCall(toolCallState, index) {
       writeTerminalOutput("\r\n");
     }
     terminalToolLog.seen.add(key);
+  } else if (isNewCall) {
+    terminalToolLog.seen.add(key);
   }
 
-  if (needsOutputUpdate) {
+  if (needsOutputUpdate && shouldMirrorOutput) {
     const delta = output.startsWith(previousOutput)
       ? output.slice(previousOutput.length)
       : `\r\n${output}`;
     writeTerminalOutput(delta);
+    terminalToolLog.outputCache.set(key, output);
+  } else if (needsOutputUpdate) {
     terminalToolLog.outputCache.set(key, output);
   }
 }
