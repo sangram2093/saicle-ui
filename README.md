@@ -89,9 +89,14 @@ If you set `SAICLE_HOME`, `cliPath` and `cliConfigPath` can stay relative (for p
    Both scripts set `SAICLE_HOME` automatically.
    If Node 22 is not on PATH, set `SAICLE_NODE_PATH` to the Node 22 binary.
    You can pass extra args (e.g., `--ui-port 4175`).
-5. Alternatively, set `SAICLE_HOME` and run:
+5. Alternatively, set `SAICLE_HOME` and run from the bundle root:
    ```
+   cd %SAICLE_HOME%
    node saicle-ui/server.cjs --no-open
+   ```
+   Or run it from anywhere using an absolute path:
+   ```
+   node %SAICLE_HOME%/saicle-ui/server.cjs --no-open
    ```
 
 ## Notes

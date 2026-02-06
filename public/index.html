@@ -20,13 +20,46 @@
           </div>
         </div>
 
-        <button class="primary-btn" id="newChatBtn" type="button">New Chat</button>
-        <button class="secondary-btn" id="credentialsBtn" type="button">
-          Credentials
-        </button>
-        <button class="secondary-btn" id="terminalBtn" type="button">
-          Terminal
-        </button>
+        <div class="sidebar-actions">
+          <button
+            class="icon-btn"
+            id="newChatBtn"
+            type="button"
+            aria-label="New chat"
+            title="New chat"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span class="icon-label">New</span>
+          </button>
+          <button
+            class="icon-btn"
+            id="credentialsBtn"
+            type="button"
+            aria-label="Credentials"
+            title="Credentials"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+            <span class="icon-label">Credentials</span>
+          </button>
+          <button
+            class="icon-btn"
+            id="terminalBtn"
+            type="button"
+            aria-label="Terminal"
+            title="Terminal"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7l5 5-5 5" />
+              <path d="M12 17h8" />
+            </svg>
+            <span class="icon-label">Terminal</span>
+          </button>
+        </div>
 
         <div class="panel">
           <div class="panel-title">History</div>

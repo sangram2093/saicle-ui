@@ -80,6 +80,48 @@ const TERMINAL_TOOL_NAMES = new Set([
   "bash",
 ]);
 
+const ACTION_ICONS = {
+  compact: `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M9 3H3v6" />
+    <path d="M21 9V3h-6" />
+    <path d="M3 15v6h6" />
+    <path d="M15 21h6v-6" />
+  </svg>`,
+  rule: `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+    <path d="M14 3v6h6" />
+    <path d="M9 13h6" />
+    <path d="M9 17h6" />
+  </svg>`,
+  delete: `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M3 6h18" />
+    <path d="M8 6V4h8v2" />
+    <path d="M6 6l1 14h10l1-14" />
+    <path d="M10 11v6" />
+    <path d="M14 11v6" />
+  </svg>`,
+  read: `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 10v4h4l5 4V6l-5 4H4z" />
+    <path d="M16 9a3 3 0 0 1 0 6" />
+    <path d="M18.5 7a5.5 5.5 0 0 1 0 10" />
+  </svg>`,
+  stop: `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </svg>`,
+  copy: `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="9" y="9" width="10" height="10" rx="2" />
+    <path d="M5 15V5h10" />
+  </svg>`,
+  helpful: `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.3a2 2 0 0 0 2-1.7l1.4-9a2 2 0 0 0-2-2.3z" />
+    <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+  </svg>`,
+  unhelpful: `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H6.7a2 2 0 0 0-2 1.7L3.3 13a2 2 0 0 0 2 2.3z" />
+    <path d="M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3" />
+  </svg>`,
+};
+
 const terminalToolLog = {
   seen: new Set(),
   outputCache: new Map(),
@@ -1238,11 +1280,22 @@ function roleLabel(role) {
   return role || "dbSAIcle";
 }
 
+function getActionIcon(name) {
+  return ACTION_ICONS[name] || "";
+}
+
 function createActionButton(label, options = {}) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = `action-btn${options.className ? ` ${options.className}` : ""}`;
-  btn.textContent = label;
+  const iconMarkup = options.icon ? getActionIcon(options.icon) : "";
+  if (iconMarkup) {
+    btn.innerHTML = `${iconMarkup}<span class="action-label">${label}</span>`;
+  } else {
+    btn.textContent = label;
+  }
+  btn.setAttribute("aria-label", label);
+  btn.title = label;
   if (options.onClick) {
     btn.addEventListener("click", options.onClick);
   }
@@ -1264,6 +1317,7 @@ function buildMessageActions(item, index, isLast) {
     actions.appendChild(
       createActionButton("Compact conversation", {
         className: "primary",
+        icon: "compact",
         onClick: async () => {
           if (viewingSession) return;
           setStatus("Compacting", true);
@@ -1279,6 +1333,7 @@ function buildMessageActions(item, index, isLast) {
 
     actions.appendChild(
       createActionButton("Generate rule", {
+        icon: "rule",
         onClick: async () => {
           if (viewingSession) return;
           const prompt =
@@ -1293,6 +1348,7 @@ function buildMessageActions(item, index, isLast) {
   actions.appendChild(
     createActionButton("Delete", {
       className: "danger",
+      icon: "delete",
       onClick: async () => {
         if (viewingSession) return;
         await fetchJson("/api/delete", {
@@ -1310,6 +1366,7 @@ function buildMessageActions(item, index, isLast) {
     actions.appendChild(
       createActionButton(isSpeaking ? "Stop reading" : "Read aloud", {
         className: isSpeaking ? "active" : "",
+        icon: isSpeaking ? "stop" : "read",
         onClick: () => {
           if (!messageText) return;
           if (activeSpeechKey === signature) {
@@ -1338,6 +1395,7 @@ function buildMessageActions(item, index, isLast) {
 
   actions.appendChild(
     createActionButton("Copy", {
+      icon: "copy",
       onClick: async () => {
         await copyToClipboard(messageText);
       },
@@ -1349,6 +1407,7 @@ function buildMessageActions(item, index, isLast) {
     actions.appendChild(
       createActionButton("Helpful", {
         className: feedback === true ? "active" : "",
+        icon: "helpful",
         onClick: () => {
           setFeedbackState(sessionId, signature, true);
           renderMessages(liveState.session?.history || [], liveState.isProcessing, liveState.pendingPermission);
@@ -1358,6 +1417,7 @@ function buildMessageActions(item, index, isLast) {
     actions.appendChild(
       createActionButton("Unhelpful", {
         className: feedback === false ? "active" : "",
+        icon: "unhelpful",
         onClick: () => {
           setFeedbackState(sessionId, signature, false);
           renderMessages(liveState.session?.history || [], liveState.isProcessing, liveState.pendingPermission);
