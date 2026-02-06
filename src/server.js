@@ -768,6 +768,10 @@ app.get("/api/tools", async (req, res) => {
   await proxyJson(req, res, "GET", "/tools");
 });
 
+app.post("/api/tools/policy", async (req, res) => {
+  await proxyJson(req, res, "POST", "/tools/policy");
+});
+
 app.get("/api/mcp", async (req, res) => {
   await proxyJson(req, res, "GET", "/mcp");
 });

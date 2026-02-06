@@ -138,6 +138,12 @@ const ACTION_ICONS = {
   </svg>`,
 };
 
+const TOOL_POLICY_LABELS = {
+  allow: "Automatic",
+  ask: "Ask First",
+  exclude: "Excluded",
+};
+
 const terminalToolLog = {
   seen: new Set(),
   outputCache: new Map(),
@@ -1170,7 +1176,12 @@ async function loadToolsList() {
   try {
     const data = await fetchJson("/api/tools");
     const tools = Array.isArray(data.tools) ? data.tools : [];
-    toolsSummary.textContent = `${tools.length} tool(s) available`;
+    const effectiveMode = data.mode || currentMode;
+    const isEditable = effectiveMode === "normal";
+    const modeText = modeLabel(effectiveMode);
+    toolsSummary.textContent = `${tools.length} tool(s) available${
+      isEditable ? "" : ` · Policies locked in ${modeText} mode`
+    }`;
 
     if (tools.length === 0) {
       const empty = document.createElement("div");
@@ -1181,12 +1192,67 @@ async function loadToolsList() {
     }
 
     tools.forEach((tool) => {
+      const permission = TOOL_POLICY_LABELS[tool.permission]
+        ? tool.permission
+        : "ask";
+
       const row = document.createElement("div");
       row.className = "list-item";
+
+      const header = document.createElement("div");
+      header.className = "list-item-header";
 
       const title = document.createElement("div");
       title.className = "list-item-title";
       title.textContent = tool.displayName || tool.name || "Tool";
+
+      const policyWrap = document.createElement("div");
+      policyWrap.className = "tool-policy";
+
+      const policyLabel = document.createElement("span");
+      policyLabel.className = "tool-policy-label";
+      policyLabel.textContent = "Policy";
+
+      const policySelect = document.createElement("select");
+      policySelect.className = "tool-policy-select";
+      policySelect.disabled = !isEditable;
+      [
+        { value: "allow", label: TOOL_POLICY_LABELS.allow },
+        { value: "ask", label: TOOL_POLICY_LABELS.ask },
+        { value: "exclude", label: TOOL_POLICY_LABELS.exclude },
+      ].forEach((optionDef) => {
+        const option = document.createElement("option");
+        option.value = optionDef.value;
+        option.textContent = optionDef.label;
+        policySelect.appendChild(option);
+      });
+      policySelect.value = permission;
+      policySelect.addEventListener("change", async () => {
+        const nextValue = policySelect.value;
+        policySelect.disabled = true;
+        try {
+          await fetchJson("/api/tools/policy", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              toolName: tool.name,
+              permission: nextValue,
+            }),
+          });
+          await updateState();
+          await loadToolsList();
+        } catch (_err) {
+          policySelect.value = permission;
+          toolsSummary.textContent = "Failed to update tool policy.";
+        } finally {
+          policySelect.disabled = !isEditable;
+        }
+      });
+
+      policyWrap.appendChild(policyLabel);
+      policyWrap.appendChild(policySelect);
+      header.appendChild(title);
+      header.appendChild(policyWrap);
 
       const meta = document.createElement("div");
       meta.className = "list-item-meta";
@@ -1199,7 +1265,7 @@ async function loadToolsList() {
         : "Built-in tool";
       detail.textContent = `${kind} · ${tool.name || ""}`;
 
-      row.appendChild(title);
+      row.appendChild(header);
       row.appendChild(meta);
       row.appendChild(detail);
       toolsList.appendChild(row);
@@ -1739,7 +1805,11 @@ function renderMessages(history, showThinking, pendingPermission) {
       }, -1)
     : -1;
 
-  if (!history || history.length === 0 || lastRenderableIndex === -1) {
+  const isEmpty =
+    !history || history.length === 0 || lastRenderableIndex === -1;
+  chatEl.classList.toggle("empty", isEmpty);
+
+  if (isEmpty) {
     const empty = document.createElement("div");
     empty.className = "message assistant";
     const header = document.createElement("div");
