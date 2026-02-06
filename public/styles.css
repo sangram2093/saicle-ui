@@ -789,11 +789,16 @@ body.terminal-open .terminal-resizer {
   width: 100%;
 }
 
+.terminal-container .xterm-screen {
+  pointer-events: none;
+}
+
 .terminal-container .xterm-viewport {
   border-radius: 6px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.35) rgba(0, 0, 0, 0.2);
+  pointer-events: auto;
 }
 
 .terminal-container .xterm-viewport::-webkit-scrollbar {
