@@ -1,4 +1,6 @@
 const chatEl = document.getElementById("chat");
+const appEl = document.getElementById("app");
+const workspaceEl = document.querySelector(".workspace");
 const statusEl = document.getElementById("status");
 const sendBtn = document.getElementById("sendBtn");
 const promptEl = document.getElementById("prompt");
@@ -13,6 +15,7 @@ const hangText = document.getElementById("hangText");
 const restartBtn = document.getElementById("restartBtn");
 const retryBtn = document.getElementById("retryBtn");
 const credentialsBtn = document.getElementById("credentialsBtn");
+const sidebarResizer = document.getElementById("sidebarResizer");
 
 const permissionBar = document.getElementById("permissionBar");
 const permissionLabel = document.getElementById("permissionLabel");
@@ -39,6 +42,7 @@ const terminalClearBtn = document.getElementById("terminalClearBtn");
 const terminalCloseBtn = document.getElementById("terminalCloseBtn");
 const terminalPopoutBtn = document.getElementById("terminalPopoutBtn");
 const terminalMeta = document.getElementById("terminalMeta");
+const terminalResizer = document.getElementById("terminalResizer");
 const modeIndicator = document.getElementById("modeIndicator");
 const modeButtons = document.querySelectorAll(".mode-btn");
 
@@ -53,6 +57,12 @@ let processingStartAt = 0;
 let lastMessage = "";
 const HANG_THRESHOLD_MS = 45000;
 const SCROLL_BOTTOM_THRESHOLD = 32;
+const SIDEBAR_WIDTH_KEY = "saicle.sidebarWidth";
+const TERMINAL_WIDTH_KEY = "saicle.terminalWidth";
+const SIDEBAR_MIN_WIDTH = 220;
+const TERMINAL_MIN_WIDTH = 260;
+const CHAT_MIN_WIDTH = 320;
+const RESIZER_WIDTH = 6;
 let autoScrollEnabled = true;
 let lastRenderKey = "";
 let activeSpeechKey = null;
@@ -111,6 +121,186 @@ function hasActiveSelection() {
   if (!selection || selection.isCollapsed) return false;
   const anchor = selection.anchorNode;
   return anchor && chatEl && chatEl.contains(anchor);
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function readStoredNumber(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const value = Number.parseFloat(raw);
+    return Number.isFinite(value) ? value : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function writeStoredNumber(key, value) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch (_err) {
+    // ignore storage errors
+  }
+}
+
+function getCssVarPx(name, fallback) {
+  if (!appEl) return fallback;
+  const raw = getComputedStyle(appEl).getPropertyValue(name);
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function getSidebarLimits() {
+  const width = appEl ? appEl.getBoundingClientRect().width : window.innerWidth;
+  const min = SIDEBAR_MIN_WIDTH;
+  const max = Math.max(min, Math.floor(width * 0.55));
+  return { min, max };
+}
+
+function getTerminalLimits() {
+  const width = workspaceEl
+    ? workspaceEl.getBoundingClientRect().width
+    : appEl
+      ? appEl.getBoundingClientRect().width
+      : window.innerWidth;
+  const maxByChat = width - CHAT_MIN_WIDTH - RESIZER_WIDTH;
+  const min = Math.max(180, Math.min(TERMINAL_MIN_WIDTH, maxByChat));
+  const max = Math.max(min, Math.min(Math.floor(width * 0.65), maxByChat));
+  return { min, max };
+}
+
+function applySidebarWidth(width, persist) {
+  if (!appEl || width === null || width === undefined) return;
+  const limits = getSidebarLimits();
+  const next = clamp(width, limits.min, limits.max);
+  appEl.style.setProperty("--sidebar-width", `${next}px`);
+  if (persist) {
+    writeStoredNumber(SIDEBAR_WIDTH_KEY, next);
+  }
+}
+
+function applyTerminalWidth(width, persist) {
+  if (!appEl || width === null || width === undefined) return;
+  const limits = getTerminalLimits();
+  const next = clamp(width, limits.min, limits.max);
+  appEl.style.setProperty("--terminal-width", `${next}px`);
+  if (persist) {
+    writeStoredNumber(TERMINAL_WIDTH_KEY, next);
+  }
+}
+
+function loadPanelSizes() {
+  const sidebarStored = readStoredNumber(SIDEBAR_WIDTH_KEY);
+  if (sidebarStored !== null) {
+    applySidebarWidth(sidebarStored, false);
+  }
+  const terminalStored = readStoredNumber(TERMINAL_WIDTH_KEY);
+  if (terminalStored !== null) {
+    applyTerminalWidth(terminalStored, false);
+  }
+}
+
+function refreshPanelSizes() {
+  const sidebarWidth = getCssVarPx("--sidebar-width", 280);
+  applySidebarWidth(sidebarWidth, false);
+  const terminalWidth = getCssVarPx("--terminal-width", 360);
+  applyTerminalWidth(terminalWidth, false);
+}
+
+function initResizer(handle, onResize, onCommit) {
+  if (!handle) return;
+  let dragging = false;
+  let latestValue = null;
+
+  const stopDragging = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    if (handle.releasePointerCapture && event?.pointerId !== undefined) {
+      try {
+        handle.releasePointerCapture(event.pointerId);
+      } catch (_err) {
+        // ignore capture errors
+      }
+    }
+    if (typeof onCommit === "function" && latestValue !== null) {
+      onCommit(latestValue);
+    }
+    latestValue = null;
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    dragging = true;
+    handle.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    if (handle.setPointerCapture) {
+      handle.setPointerCapture(event.pointerId);
+    }
+    const value = onResize(event);
+    if (typeof value === "number") {
+      latestValue = value;
+    }
+  });
+
+  window.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    const value = onResize(event);
+    if (typeof value === "number") {
+      latestValue = value;
+    }
+  });
+
+  window.addEventListener("pointerup", stopDragging);
+  window.addEventListener("pointercancel", stopDragging);
+}
+
+function setupResizers() {
+  initResizer(
+    sidebarResizer,
+    (event) => {
+      if (!appEl) return null;
+      const rect = appEl.getBoundingClientRect();
+      const rawWidth = event.clientX - rect.left;
+      const limits = getSidebarLimits();
+      const next = clamp(rawWidth, limits.min, limits.max);
+      appEl.style.setProperty("--sidebar-width", `${next}px`);
+      return next;
+    },
+    (value) => {
+      applySidebarWidth(value, true);
+    },
+  );
+
+  initResizer(
+    terminalResizer,
+    (event) => {
+      if (!terminalPanelVisible) return null;
+      if (window.matchMedia("(max-width: 980px)").matches) return null;
+      if (!workspaceEl || !appEl) return null;
+      const rect = workspaceEl.getBoundingClientRect();
+      const rawWidth = rect.right - event.clientX;
+      const limits = getTerminalLimits();
+      const next = clamp(rawWidth, limits.min, limits.max);
+      appEl.style.setProperty("--terminal-width", `${next}px`);
+      if (terminalFitAddon) {
+        terminalFitAddon.fit();
+      }
+      return next;
+    },
+    (value) => {
+      applyTerminalWidth(value, true);
+      if (terminalFitAddon && terminalPanelVisible) {
+        terminalFitAddon.fit();
+      }
+    },
+  );
 }
 
 function setStatus(text, isBusy) {
@@ -994,11 +1184,16 @@ function setTerminalPanelVisible(visible, options = {}) {
   terminalPanelVisible = visible;
   terminalPanel.classList.toggle("show", visible);
   terminalPanel.setAttribute("aria-hidden", visible ? "false" : "true");
+  document.body.classList.toggle("terminal-open", visible);
+  if (terminalResizer) {
+    terminalResizer.setAttribute("aria-hidden", visible ? "false" : "true");
+  }
 
   if (!visible) {
     return;
   }
 
+  refreshPanelSizes();
   setupTerminalShellOptions();
   ensureTerminalInstance();
 
@@ -1633,6 +1828,8 @@ chatSubEl.addEventListener("click", () => {
   if (chatEl) {
     chatEl.addEventListener("scroll", updateAutoScrollState);
   }
+  loadPanelSizes();
+  setupResizers();
   refreshSecretFieldOptions();
   toggleCredentialsMode();
   const params = new URLSearchParams(window.location.search);
@@ -1640,6 +1837,7 @@ chatSubEl.addEventListener("click", () => {
     openTerminalPanel({ focus: true });
   }
   window.addEventListener("resize", () => {
+    refreshPanelSizes();
     if (terminalFitAddon && terminalPanelVisible) {
       terminalFitAddon.fit();
     }
