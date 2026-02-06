@@ -16,6 +16,8 @@ const restartBtn = document.getElementById("restartBtn");
 const retryBtn = document.getElementById("retryBtn");
 const credentialsBtn = document.getElementById("credentialsBtn");
 const sidebarResizer = document.getElementById("sidebarResizer");
+const historyToggleBtn = document.getElementById("historyToggleBtn");
+const historyPanel = document.querySelector(".sidebar .panel");
 
 const permissionBar = document.getElementById("permissionBar");
 const permissionLabel = document.getElementById("permissionLabel");
@@ -45,6 +47,18 @@ const terminalMeta = document.getElementById("terminalMeta");
 const terminalResizer = document.getElementById("terminalResizer");
 const modeIndicator = document.getElementById("modeIndicator");
 const modeButtons = document.querySelectorAll(".mode-btn");
+const toolsBtn = document.getElementById("toolsBtn");
+const mcpBtn = document.getElementById("mcpBtn");
+const toolsModal = document.getElementById("toolsModal");
+const mcpModal = document.getElementById("mcpModal");
+const toolsList = document.getElementById("toolsList");
+const mcpList = document.getElementById("mcpList");
+const toolsSummary = document.getElementById("toolsSummary");
+const mcpSummary = document.getElementById("mcpSummary");
+const toolsCloseBtn = document.getElementById("toolsCloseBtn");
+const mcpCloseBtn = document.getElementById("mcpCloseBtn");
+const contextIndicator = document.getElementById("contextIndicator");
+const contextLabel = document.getElementById("contextLabel");
 
 let liveState = {
   session: { history: [] },
@@ -63,6 +77,7 @@ const SIDEBAR_MIN_WIDTH = 220;
 const TERMINAL_MIN_WIDTH = 260;
 const CHAT_MIN_WIDTH = 320;
 const RESIZER_WIDTH = 6;
+const HISTORY_COLLAPSED_KEY = "saicle.historyCollapsed";
 let autoScrollEnabled = true;
 let lastRenderKey = "";
 let activeSpeechKey = null;
@@ -72,6 +87,7 @@ let terminalFitAddon = null;
 let terminalPanelVisible = false;
 let terminalConnected = false;
 let currentMode = "normal";
+let historyCollapsed = false;
 
 const TERMINAL_TOOL_NAMES = new Set([
   "run_terminal_command",
@@ -188,6 +204,26 @@ function writeStoredNumber(key, value) {
   }
 }
 
+function readStoredBool(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null || raw === undefined) return null;
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    return null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function writeStoredBool(key, value) {
+  try {
+    localStorage.setItem(key, value ? "true" : "false");
+  } catch (_err) {
+    // ignore storage errors
+  }
+}
+
 function getCssVarPx(name, fallback) {
   if (!appEl) return fallback;
   const raw = getComputedStyle(appEl).getPropertyValue(name);
@@ -250,6 +286,30 @@ function refreshPanelSizes() {
   applySidebarWidth(sidebarWidth, false);
   const terminalWidth = getCssVarPx("--terminal-width", 360);
   applyTerminalWidth(terminalWidth, false);
+}
+
+function setHistoryCollapsed(collapsed, persist) {
+  historyCollapsed = collapsed;
+  if (historyPanel) {
+    historyPanel.classList.toggle("collapsed", collapsed);
+  }
+  if (historyToggleBtn) {
+    historyToggleBtn.setAttribute(
+      "aria-label",
+      collapsed ? "Expand history" : "Collapse history",
+    );
+    historyToggleBtn.title = collapsed ? "Expand history" : "Collapse history";
+  }
+  if (persist) {
+    writeStoredBool(HISTORY_COLLAPSED_KEY, collapsed);
+  }
+}
+
+function loadHistoryState() {
+  const stored = readStoredBool(HISTORY_COLLAPSED_KEY);
+  if (stored !== null) {
+    setHistoryCollapsed(stored, false);
+  }
 }
 
 function initResizer(handle, onResize, onCommit) {
@@ -1050,6 +1110,155 @@ function closeCredentialsModal() {
   credentialsModal.setAttribute("aria-hidden", "true");
 }
 
+function openToolsModal() {
+  if (!toolsModal) return;
+  toolsModal.classList.add("show");
+  toolsModal.setAttribute("aria-hidden", "false");
+  loadToolsList();
+}
+
+function closeToolsModal() {
+  if (!toolsModal) return;
+  toolsModal.classList.remove("show");
+  toolsModal.setAttribute("aria-hidden", "true");
+}
+
+function openMcpModal() {
+  if (!mcpModal) return;
+  mcpModal.classList.add("show");
+  mcpModal.setAttribute("aria-hidden", "false");
+  loadMcpList();
+}
+
+function closeMcpModal() {
+  if (!mcpModal) return;
+  mcpModal.classList.remove("show");
+  mcpModal.setAttribute("aria-hidden", "true");
+}
+
+function updateContextIndicator(contextUsage) {
+  if (!contextIndicator || !contextLabel) return;
+  if (!contextUsage || typeof contextUsage.percentage !== "number") {
+    contextIndicator.style.setProperty("--context", "0");
+    contextIndicator.style.setProperty("--context-color", "var(--accent)");
+    contextLabel.textContent = "--";
+    contextIndicator.title = "Context";
+    return;
+  }
+  const percent = clamp(Math.round(contextUsage.percentage), 0, 100);
+  const tokenCount = Number(contextUsage.tokenCount || 0);
+  const limit = Number(contextUsage.limit || 0);
+  contextIndicator.style.setProperty("--context", String(percent));
+
+  let color = "var(--accent)";
+  if (percent >= 90) {
+    color = "var(--error)";
+  } else if (percent >= 75) {
+    color = "var(--warning)";
+  }
+  contextIndicator.style.setProperty("--context-color", color);
+  contextLabel.textContent = `${percent}%`;
+  contextIndicator.title = limit
+    ? `Context ${percent}% (${tokenCount} / ${limit} tokens)`
+    : `Context ${percent}% (${tokenCount} tokens)`;
+}
+
+async function loadToolsList() {
+  if (!toolsList || !toolsSummary) return;
+  toolsList.innerHTML = "";
+  toolsSummary.textContent = "Loading tools...";
+  try {
+    const data = await fetchJson("/api/tools");
+    const tools = Array.isArray(data.tools) ? data.tools : [];
+    toolsSummary.textContent = `${tools.length} tool(s) available`;
+
+    if (tools.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "session-meta";
+      empty.textContent = "No tools reported by the backend.";
+      toolsList.appendChild(empty);
+      return;
+    }
+
+    tools.forEach((tool) => {
+      const row = document.createElement("div");
+      row.className = "list-item";
+
+      const title = document.createElement("div");
+      title.className = "list-item-title";
+      title.textContent = tool.displayName || tool.name || "Tool";
+
+      const meta = document.createElement("div");
+      meta.className = "list-item-meta";
+      meta.textContent = tool.description || "No description available.";
+
+      const detail = document.createElement("div");
+      detail.className = "list-item-meta";
+      const kind = String(tool.name || "").startsWith("mcp__")
+        ? "MCP tool"
+        : "Built-in tool";
+      detail.textContent = `${kind} · ${tool.name || ""}`;
+
+      row.appendChild(title);
+      row.appendChild(meta);
+      row.appendChild(detail);
+      toolsList.appendChild(row);
+    });
+  } catch (_err) {
+    toolsSummary.textContent = "Failed to load tools.";
+  }
+}
+
+async function loadMcpList() {
+  if (!mcpList || !mcpSummary) return;
+  mcpList.innerHTML = "";
+  mcpSummary.textContent = "Loading MCP servers...";
+  try {
+    const data = await fetchJson("/api/mcp");
+    const servers = Array.isArray(data.servers) ? data.servers : [];
+    mcpSummary.textContent = `${servers.length} server(s) configured`;
+
+    if (servers.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "session-meta";
+      empty.textContent = "No MCP servers configured.";
+      mcpList.appendChild(empty);
+      return;
+    }
+
+    servers.forEach((server) => {
+      const row = document.createElement("div");
+      row.className = "list-item";
+
+      const title = document.createElement("div");
+      title.className = "list-item-title";
+      title.textContent = server.name || "MCP Server";
+
+      const meta = document.createElement("div");
+      meta.className = "list-item-meta";
+      meta.textContent = `Status: ${server.status || "unknown"}`;
+
+      const detail = document.createElement("div");
+      detail.className = "list-item-meta";
+      const toolCount = Number(server.toolCount || 0);
+      const warningCount = Array.isArray(server.warnings)
+        ? server.warnings.length
+        : 0;
+      const errorText = server.error ? ` · Error: ${server.error}` : "";
+      detail.textContent = `${toolCount} tool(s)${
+        warningCount ? ` · ${warningCount} warning(s)` : ""
+      }${errorText}`;
+
+      row.appendChild(title);
+      row.appendChild(meta);
+      row.appendChild(detail);
+      mcpList.appendChild(row);
+    });
+  } catch (_err) {
+    mcpSummary.textContent = "Failed to load MCP servers.";
+  }
+}
+
 function isWindowsClient() {
   if (typeof navigator === "undefined") return false;
   return /Windows/i.test(navigator.userAgent);
@@ -1290,7 +1499,7 @@ function createActionButton(label, options = {}) {
   btn.className = `action-btn${options.className ? ` ${options.className}` : ""}`;
   const iconMarkup = options.icon ? getActionIcon(options.icon) : "";
   if (iconMarkup) {
-    btn.innerHTML = `${iconMarkup}<span class="action-label">${label}</span>`;
+    btn.innerHTML = iconMarkup;
   } else {
     btn.textContent = label;
   }
@@ -1300,6 +1509,20 @@ function createActionButton(label, options = {}) {
     btn.addEventListener("click", options.onClick);
   }
   return btn;
+}
+
+function isToolCallCompleted(status) {
+  const normalized = String(status || "").toLowerCase();
+  return [
+    "done",
+    "completed",
+    "success",
+    "failed",
+    "error",
+    "errored",
+    "canceled",
+    "cancelled",
+  ].includes(normalized);
 }
 
 function buildMessageActions(item, index, isLast) {
@@ -1360,6 +1583,18 @@ function buildMessageActions(item, index, isLast) {
       },
     }),
   );
+
+  if (role === "user") {
+    actions.appendChild(
+      createActionButton("Copy", {
+        icon: "copy",
+        onClick: async () => {
+          await copyToClipboard(messageText);
+        },
+      }),
+    );
+    return actions;
+  }
 
   if (role === "assistant" && "speechSynthesis" in window) {
     const isSpeaking = activeSpeechKey === signature;
@@ -1435,8 +1670,13 @@ function renderToolCalls(toolCallStates, container) {
   wrapper.className = "tool-calls";
 
   toolCallStates.forEach((tc) => {
-    const card = document.createElement("div");
+    const statusValue = String(tc.status || "").toLowerCase();
+    const isCompleted = isToolCallCompleted(statusValue);
+    const card = document.createElement("details");
     card.className = "tool-call";
+    if (!isCompleted) {
+      card.open = true;
+    }
 
     const title = document.createElement("div");
     title.className = "tool-call-title";
@@ -1445,25 +1685,27 @@ function renderToolCalls(toolCallStates, container) {
     name.textContent = tc.toolCall?.function?.name || "tool";
 
     const status = document.createElement("span");
-    const statusValue = String(tc.status || "").toLowerCase();
     status.className = `tool-call-status ${statusValue}`;
     status.textContent = tc.status || "";
 
     title.appendChild(name);
     title.appendChild(status);
 
-    const args = document.createElement("div");
-    args.className = "tool-call-section tool-call-args";
+    const summary = document.createElement("summary");
+    summary.appendChild(title);
+    card.appendChild(summary);
+
+    const body = document.createElement("div");
+    body.className = "tool-call-body";
+
     const argText = normalizeToolArgs(tc.toolCall?.function?.arguments);
     if (argText) {
+      const args = document.createElement("div");
+      args.className = "tool-call-section tool-call-args";
       args.innerHTML = `<div class="tool-call-label">Args</div><pre><code class="language-json">${escapeHtml(
         argText,
       )}</code></pre>`;
-    }
-
-    card.appendChild(title);
-    if (argText) {
-      card.appendChild(args);
+      body.appendChild(args);
     }
 
     const outputText = normalizeToolOutput(tc.output);
@@ -1474,9 +1716,10 @@ function renderToolCalls(toolCallStates, container) {
         outputText,
       )}`;
       hydratePreviews(output);
-      card.appendChild(output);
+      body.appendChild(output);
     }
 
+    card.appendChild(body);
     wrapper.appendChild(card);
   });
 
@@ -1499,8 +1742,19 @@ function renderMessages(history, showThinking, pendingPermission) {
   if (!history || history.length === 0 || lastRenderableIndex === -1) {
     const empty = document.createElement("div");
     empty.className = "message assistant";
-    empty.innerHTML =
-      '<div class="message-role">dbSAIcle</div><div class="message-content">Start a conversation to see responses here.</div>';
+    const header = document.createElement("div");
+    header.className = "message-header";
+    const roleEl = document.createElement("div");
+    roleEl.className = "message-role";
+    roleEl.textContent = "dbSAIcle";
+    header.appendChild(roleEl);
+    empty.appendChild(header);
+
+    const content = document.createElement("div");
+    content.className = "message-content";
+    content.textContent = "Start a conversation to see responses here.";
+    empty.appendChild(content);
+
     chatEl.appendChild(empty);
     if (showThinking && !pendingPermission) {
       appendThinkingMessage();
@@ -1523,12 +1777,9 @@ function renderMessages(history, showThinking, pendingPermission) {
     content.innerHTML = renderRichText(normalizeContent(item.message?.content));
     hydratePreviews(content);
 
-    msg.appendChild(roleEl);
-    msg.appendChild(content);
-
-    if (role === "assistant" && item.toolCallStates) {
-      renderToolCalls(item.toolCallStates, msg);
-    }
+    const header = document.createElement("div");
+    header.className = "message-header";
+    header.appendChild(roleEl);
 
     const actions = buildMessageActions(
       item,
@@ -1536,7 +1787,14 @@ function renderMessages(history, showThinking, pendingPermission) {
       index === lastRenderableIndex,
     );
     if (actions) {
-      msg.appendChild(actions);
+      header.appendChild(actions);
+    }
+
+    msg.appendChild(header);
+    msg.appendChild(content);
+
+    if (role === "assistant" && item.toolCallStates) {
+      renderToolCalls(item.toolCallStates, msg);
     }
 
     chatEl.appendChild(msg);
@@ -1562,11 +1820,15 @@ function appendThinkingMessage() {
   roleEl.className = "message-role";
   roleEl.textContent = "dbSAIcle";
 
+  const header = document.createElement("div");
+  header.className = "message-header";
+  header.appendChild(roleEl);
+
   const content = document.createElement("div");
   content.className = "message-content";
   content.textContent = "Thinking...";
 
-  msg.appendChild(roleEl);
+  msg.appendChild(header);
   msg.appendChild(content);
 
   chatEl.appendChild(msg);
@@ -1625,6 +1887,7 @@ async function updateState() {
       if (state.mode) {
         setModeUI(state.mode);
       }
+      updateContextIndicator(state.contextUsage);
       updatePermissionBar(pending);
       updateProcessingUI(state.isProcessing);
 
@@ -1644,6 +1907,7 @@ async function updateState() {
     if (!viewingSession) {
       renderMessages(liveState.session?.history || [], false, null);
     }
+    updateContextIndicator(null);
     updateProcessingUI(false);
     updatePermissionBar(null);
     setHangBanner(
@@ -1789,6 +2053,20 @@ if (credentialsBtn) {
   credentialsBtn.addEventListener("click", openCredentialsModal);
 }
 
+if (toolsBtn) {
+  toolsBtn.addEventListener("click", openToolsModal);
+}
+
+if (mcpBtn) {
+  mcpBtn.addEventListener("click", openMcpModal);
+}
+
+if (historyToggleBtn) {
+  historyToggleBtn.addEventListener("click", () => {
+    setHistoryCollapsed(!historyCollapsed, true);
+  });
+}
+
 if (credentialsModal) {
   credentialsModal.addEventListener("click", (event) => {
     if (event.target === credentialsModal) {
@@ -1797,8 +2075,32 @@ if (credentialsModal) {
   });
 }
 
+if (toolsModal) {
+  toolsModal.addEventListener("click", (event) => {
+    if (event.target === toolsModal) {
+      closeToolsModal();
+    }
+  });
+}
+
+if (mcpModal) {
+  mcpModal.addEventListener("click", (event) => {
+    if (event.target === mcpModal) {
+      closeMcpModal();
+    }
+  });
+}
+
 if (secretCancelBtn) {
   secretCancelBtn.addEventListener("click", closeCredentialsModal);
+}
+
+if (toolsCloseBtn) {
+  toolsCloseBtn.addEventListener("click", closeToolsModal);
+}
+
+if (mcpCloseBtn) {
+  mcpCloseBtn.addEventListener("click", closeMcpModal);
 }
 
 if (secretSaveBtn) {
@@ -1904,6 +2206,7 @@ chatSubEl.addEventListener("click", () => {
     chatEl.addEventListener("scroll", updateAutoScrollState);
   }
   loadPanelSizes();
+  loadHistoryState();
   setupResizers();
   refreshSecretFieldOptions();
   toggleCredentialsMode();

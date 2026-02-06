@@ -764,6 +764,14 @@ app.post("/api/mode", async (req, res) => {
   await proxyJson(req, res, "POST", "/mode");
 });
 
+app.get("/api/tools", async (req, res) => {
+  await proxyJson(req, res, "GET", "/tools");
+});
+
+app.get("/api/mcp", async (req, res) => {
+  await proxyJson(req, res, "GET", "/mcp");
+});
+
 app.get("/api/diff", async (req, res) => {
   await proxyJson(req, res, "GET", "/diff");
 });

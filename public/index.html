@@ -12,7 +12,10 @@
       <aside class="sidebar">
         <div class="brand">
           <div class="brand-mark">
-            <img src="dbsaicle-logo.jpeg" alt="dbSAIcle logo" />
+            <img
+              src="dbsaicle-logo-transparent.jpeg"
+              alt="dbSAIcle logo"
+            />
           </div>
           <div class="brand-text">
             <div class="brand-name">dbSAIcle</div>
@@ -31,7 +34,6 @@
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 5v14M5 12h14" />
             </svg>
-            <span class="icon-label">New</span>
           </button>
           <button
             class="icon-btn"
@@ -44,7 +46,6 @@
               <rect x="5" y="11" width="14" height="10" rx="2" />
               <path d="M8 11V7a4 4 0 0 1 8 0v4" />
             </svg>
-            <span class="icon-label">Credentials</span>
           </button>
           <button
             class="icon-btn"
@@ -57,12 +58,24 @@
               <path d="M4 7l5 5-5 5" />
               <path d="M12 17h8" />
             </svg>
-            <span class="icon-label">Terminal</span>
           </button>
         </div>
 
         <div class="panel">
-          <div class="panel-title">History</div>
+          <div class="panel-header">
+            <div class="panel-title">History</div>
+            <button
+              class="panel-toggle"
+              id="historyToggleBtn"
+              type="button"
+              aria-label="Collapse history"
+              title="Collapse history"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 10l5 5 5-5" />
+              </svg>
+            </button>
+          </div>
           <div class="sessions" id="sessions"></div>
         </div>
       </aside>
@@ -75,6 +88,9 @@
             <div class="chat-sub" id="chatSub">Live session</div>
           </div>
           <div class="topbar-right">
+            <div class="context-indicator" id="contextIndicator" title="Context">
+              <span id="contextLabel">0%</span>
+            </div>
             <span class="status" id="status">Idle</span>
             <span class="mode-indicator" id="modeIndicator">Chat</span>
             <button class="secondary-btn" id="stopTopBtn" type="button">
@@ -160,6 +176,14 @@
               </button>
               <button class="mode-btn" type="button" data-mode="auto">
                 Auto
+              </button>
+            </div>
+            <div class="mode-group">
+              <button class="mode-btn" id="toolsBtn" type="button">
+                Tools
+              </button>
+              <button class="mode-btn" id="mcpBtn" type="button">
+                MCP
               </button>
             </div>
             <div class="permission-bar" id="permissionBar" aria-hidden="true">
@@ -275,6 +299,36 @@
             <div class="panel-title">Stored keys</div>
             <div id="secretList" class="secret-list"></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="toolsModal" aria-hidden="true">
+      <div class="modal-card list-card">
+        <div class="modal-title">Available Tools</div>
+        <div class="modal-body">
+          <div class="list-summary" id="toolsSummary"></div>
+          <div class="list-items" id="toolsList"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-btn" id="toolsCloseBtn" type="button">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="mcpModal" aria-hidden="true">
+      <div class="modal-card list-card">
+        <div class="modal-title">MCP Servers</div>
+        <div class="modal-body">
+          <div class="list-summary" id="mcpSummary"></div>
+          <div class="list-items" id="mcpList"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-btn" id="mcpCloseBtn" type="button">
+            Close
+          </button>
         </div>
       </div>
     </div>
