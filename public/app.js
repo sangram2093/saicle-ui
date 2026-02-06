@@ -1778,6 +1778,21 @@ if (terminalPopoutBtn) {
   terminalPopoutBtn.addEventListener("click", openTerminalWindow);
 }
 
+if (terminalContainer) {
+  terminalContainer.addEventListener(
+    "wheel",
+    (event) => {
+      event.stopPropagation();
+    },
+    { passive: true },
+  );
+  terminalContainer.addEventListener("click", () => {
+    if (terminalInstance) {
+      terminalInstance.focus();
+    }
+  });
+}
+
 if (terminalShell) {
   terminalShell.addEventListener("change", () => {
     if (terminalPanelVisible) {
