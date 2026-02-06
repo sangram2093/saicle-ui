@@ -49,39 +49,53 @@
           </div>
         </header>
 
-        <section class="chat" id="chat"></section>
+        <div class="workspace">
+          <section class="chat" id="chat"></section>
 
-        <section class="terminal-panel" id="terminalPanel" aria-hidden="true">
-          <div class="terminal-toolbar">
-            <label class="field">
-              <span class="field-label">Shell</span>
-              <select id="terminalShell" class="field-input"></select>
-            </label>
-            <div class="terminal-meta" id="terminalMeta">Disconnected</div>
-            <div class="terminal-actions">
-              <button class="secondary-btn" id="terminalPopoutBtn" type="button">
-                Open in window
-              </button>
-              <button
-                class="secondary-btn"
-                id="terminalReconnectBtn"
-                type="button"
-              >
-                Reconnect
-              </button>
-              <button class="secondary-btn" id="terminalClearBtn" type="button">
-                Clear
-              </button>
-              <button class="secondary-btn" id="terminalCloseBtn" type="button">
-                Hide
-              </button>
+          <section class="terminal-panel" id="terminalPanel" aria-hidden="true">
+            <div class="terminal-toolbar">
+              <label class="field">
+                <span class="field-label">Shell</span>
+                <select id="terminalShell" class="field-input"></select>
+              </label>
+              <div class="terminal-meta" id="terminalMeta">Disconnected</div>
+              <div class="terminal-actions">
+                <button
+                  class="secondary-btn"
+                  id="terminalPopoutBtn"
+                  type="button"
+                >
+                  Open in window
+                </button>
+                <button
+                  class="secondary-btn"
+                  id="terminalReconnectBtn"
+                  type="button"
+                >
+                  Reconnect
+                </button>
+                <button
+                  class="secondary-btn"
+                  id="terminalClearBtn"
+                  type="button"
+                >
+                  Clear
+                </button>
+                <button
+                  class="secondary-btn"
+                  id="terminalCloseBtn"
+                  type="button"
+                >
+                  Hide
+                </button>
+              </div>
             </div>
-          </div>
-          <div id="terminalContainer" class="terminal-container"></div>
-          <div class="terminal-hint">
-            Tip: Use this like a normal terminal (supports interactive prompts).
-          </div>
-        </section>
+            <div id="terminalContainer" class="terminal-container"></div>
+            <div class="terminal-hint">
+              Tip: Use this like a normal terminal (supports interactive prompts).
+            </div>
+          </section>
+        </div>
 
         <div class="input-panel">
           <div class="hang-banner" id="hangBanner" aria-hidden="true">

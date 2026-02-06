@@ -169,6 +169,12 @@ body {
   height: 100vh;
 }
 
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -221,6 +227,8 @@ body {
   flex-direction: column;
   gap: 16px;
   user-select: text;
+  min-width: 0;
+  min-height: 0;
 }
 
 .message {
@@ -701,12 +709,15 @@ body {
 
 .terminal-panel {
   display: none;
-  border-top: 1px solid var(--panel-border);
+  border-left: 1px solid var(--panel-border);
   background: var(--panel);
-  padding: 12px 24px 16px;
+  padding: 12px 16px 16px;
+  flex: 0 1 360px;
+  min-width: 280px;
+  max-width: 40%;
   flex-direction: column;
   gap: 10px;
-  max-height: 45vh;
+  min-height: 0;
 }
 
 .terminal-panel.show {
@@ -736,7 +747,7 @@ body {
 
 .terminal-container {
   flex: 1;
-  min-height: 200px;
+  min-height: 0;
   background: #111;
   border: 1px solid var(--panel-border);
   border-radius: 10px;
@@ -836,8 +847,26 @@ body {
     display: none;
   }
 
+  .workspace {
+    flex-direction: column;
+  }
+
   .chat {
     padding: 16px;
+  }
+
+  .terminal-panel {
+    border-left: none;
+    border-top: 1px solid var(--panel-border);
+    max-width: none;
+    width: 100%;
+    min-width: 0;
+    max-height: 45vh;
+    padding: 12px 16px 16px;
+  }
+
+  .terminal-container {
+    min-height: 200px;
   }
 
   .topbar,
